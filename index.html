@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ESPER // Focus</title>
+<style>
+:root{color-scheme:dark;--focus:#3dff7a;--short:#ffb000;--long:#ff4d1f;--c:#3dff7a;--on:#000;--err:#ff6a3d;
+  --ink:color-mix(in srgb,var(--c) 78%,#fff);--dim:color-mix(in srgb,var(--c) 50%,#000);--line:color-mix(in srgb,var(--c) 38%,#000);--pbg:color-mix(in srgb,var(--c) 4%,#000);box-sizing:border-box}
+*,*::before,*::after{box-sizing:inherit}
+@font-face{font-family:VT323;src:url(fonts/vt323.woff2) format('woff2');font-display:block}
+html{font-size:clamp(18px,3vmin,30px);height:100%}
+body{margin:0;height:100%;background:#020403;padding:max(.55rem,env(safe-area-inset-top)) max(.55rem,env(safe-area-inset-right)) max(.55rem,env(safe-area-inset-bottom)) max(.55rem,env(safe-area-inset-left));font-family:VT323,Consolas,ui-monospace,monospace;line-height:1.08;overflow:hidden;color:var(--ink)}
+.screen{position:relative;height:100%;display:flex;flex-direction:column;padding:.85rem 1.2rem .8rem;overflow:hidden;border-radius:1.1rem;
+  background:radial-gradient(ellipse at 50% 38%,color-mix(in srgb,var(--c) 11%,#000),color-mix(in srgb,var(--c) 3%,#000) 68%,#000);
+  box-shadow:inset 0 0 5rem rgba(0,0,0,.8),inset 0 0 .6rem rgba(0,0,0,.9),0 0 2.5rem -.4rem color-mix(in srgb,var(--c) 45%,transparent);
+  text-shadow:0 0 .1rem color-mix(in srgb,var(--c) 90%,transparent),0 0 .65rem color-mix(in srgb,var(--c) 42%,transparent),-.05rem 0 rgba(255,40,80,.2),.05rem 0 rgba(40,200,255,.16);
+  animation:crton .9s ease-out,flick 7s infinite 1s}
+@keyframes crton{0%{transform:scale(1,.004);filter:brightness(6)}40%{transform:scale(1,.06);filter:brightness(3)}100%{transform:none;filter:none}}
+@keyframes flick{0%,100%{opacity:1}91%{opacity:1}92%{opacity:.955}93%{opacity:1}97%{opacity:.93}98%{opacity:1}}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.titlebar{display:flex;flex-wrap:nowrap;min-width:0;align-items:center;gap:1rem;padding-bottom:.35rem;border-bottom:3px double var(--line);-webkit-app-region:drag;user-select:none}
+.brand{font-size:1.6rem;letter-spacing:.14em;color:var(--c);white-space:nowrap;flex:none}
+.brand small{font-size:1rem;letter-spacing:.08em;color:var(--dim);margin-left:.9rem}
+#clk{margin-left:auto;color:var(--dim);white-space:nowrap}
+.wc{display:none;flex:none;flex-wrap:nowrap;gap:.2rem;-webkit-app-region:no-drag}
+body.native .wc{display:flex}
+.wc button{background:transparent;border:0;color:var(--dim);padding:0;white-space:nowrap;line-height:1;font-size:.95rem}
+.wc button::before{content:"["}.wc button::after{content:"]"}
+.wc button:hover,.wc button[aria-pressed=true]{color:var(--c)}
+.prog{display:flex;align-items:center;gap:.35rem;margin:.55rem 0 .1rem;color:var(--c);font-size:1.15rem;line-height:1}
+.prog .track{flex:1;height:.5rem;position:relative;background:color-mix(in srgb,var(--c) 13%,#000)}
+.prog .track i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--c);box-shadow:0 0 .6rem var(--c);transition:width .3s linear}
+.prog b{font-weight:400;min-width:3.4ch;text-align:right}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin:.4rem 0 .55rem}
+.modes button{background:transparent;color:var(--dim);border:1px solid var(--line);padding:.05rem 0;white-space:nowrap;font-size:1.05rem}
+.modes button::before{content:"[ "}.modes button::after{content:" ]"}
+.modes button:hover{color:var(--ink);border-color:var(--dim)}
+.modes button[aria-pressed=true],.ctrl .go,.seg button[aria-pressed=true],.cfg .save{background:var(--c);color:var(--on);border-color:var(--c);text-shadow:none;box-shadow:0 0 1rem color-mix(in srgb,var(--c) 70%,transparent)}
+.main{flex:1;min-height:0;display:flex;gap:1rem}
+.col{flex:1;min-width:0;display:flex;flex-direction:column}
+.log{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none;font-size:1.05rem;line-height:1.15;color:var(--dim);padding-top:.2rem;-webkit-mask:linear-gradient(transparent,#000 10%);mask:linear-gradient(transparent,#000 10%)}
+.log::-webkit-scrollbar{display:none}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .banner{font-family:Consolas,"Lucida Console",ui-monospace,monospace;font-size:.78rem;line-height:1;color:var(--c);white-space:pre}
+.log .chat{color:var(--ink)}.log .chat b{font-weight:400}
+.log .cmd,.log .tk{color:var(--ink)}.log .ok{color:var(--c)}.log .err{color:var(--err)}
+.log .tk em{font-style:normal;color:var(--dim)}.log .tk b{font-weight:400;color:var(--c)}
+.log .typing::after{content:"\2588";color:var(--c)}
+.log.on{animation:crton .45s ease-out 1}
+.prompt{display:flex;align-items:center;gap:.6rem;margin-top:.35rem;font-size:1.1rem;cursor:text}
+.prompt span{color:var(--c);white-space:nowrap}
+.prompt input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--ink);font:inherit;caret-color:var(--c);caret-shape:block;padding:0;text-shadow:inherit}
+.prompt input::placeholder{color:var(--line)}
+.ctrl{display:grid;grid-template-columns:1fr 2fr 1fr 1fr;gap:.45rem;margin-top:.6rem}
+.ctrl button,.cfg button{color:var(--c);background:transparent;border:1px solid var(--line);padding:.1rem 0;font-size:1.15rem;white-space:nowrap}
+.ctrl button::before{content:"[ "}.ctrl button::after{content:" ]"}
+.ctrl button:hover,.cfg button:hover{background:color-mix(in srgb,var(--c) 16%,transparent);border-color:var(--c)}
+.ctrl .go:hover,.cfg .save:hover{background:var(--c);filter:brightness(1.12)}
+button:active{transform:translateY(1px)}
+.bar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.1rem 1rem;margin-top:.6rem;padding:0 .6rem;background:var(--c);color:var(--on);font-size:1.05rem;text-shadow:none;box-shadow:0 0 1.2rem -.2rem var(--c)}
+@media(pointer:coarse){html{font-size:clamp(19px,4.8vw,27px)}.modes button,.ctrl button{padding:.42rem 0}.cfg button{padding:.4rem 0}.seg button{padding:.25rem .65rem!important}.cfg input[type=range]{width:6.2rem}}
+@media(max-width:700px){.brand small{display:none}.brand{font-size:1.3rem;letter-spacing:.08em}.titlebar{gap:.6rem}.wc button{font-size:.85rem}.bar{padding:0 .5rem}}
+@media(max-width:520px){#clk{display:none}}
+.log .ascii{white-space:pre;font-family:Consolas,"Lucida Console",ui-monospace,monospace;font-size:.8rem;line-height:1.05}
+.log .typing-ind{opacity:.85}
+.vec{margin:.45rem 0;aspect-ratio:480/300;background:#000;border:1px solid var(--line);animation:crton .45s ease-out}
+.vec svg{display:block;width:100%;height:100%;filter:drop-shadow(0 0 2px var(--c)) drop-shadow(1px 0 0 rgba(255,40,80,.5)) drop-shadow(-1px 0 0 rgba(40,200,255,.42))}
+.vec .p{fill:none;stroke:var(--ink);stroke-width:1.4;stroke-linecap:square;stroke-dasharray:1;stroke-dashoffset:1;animation:vdraw var(--t,.6s) cubic-bezier(.3,.6,.3,1) var(--d,0s) forwards}
+.vec .p.hi{stroke:var(--c);stroke-width:2.2}
+.vec .p.dash{stroke-dasharray:5 4;stroke-dashoffset:0;opacity:0;animation:vfade .6s ease var(--d,0s) forwards}
+.vec text{white-space:pre;font-family:VT323,Consolas,monospace;fill:var(--ink);paint-order:stroke;stroke:#000;stroke-width:3px;text-shadow:none}
+.vec .cursor path{fill:none;stroke:#ff7a7a;stroke-width:1.1;opacity:.85}
+.vec .sw{fill:none;stroke:var(--c);stroke-width:1.6}.vec .sw.f1{opacity:.4}.vec .sw.f2{opacity:.2}
+.vec .sweep{transform-box:view-box;transform-origin:175px 168px;animation:vsweep 3s linear 1.6s infinite}
+.vec .fb{fill:var(--c);animation:fbfill 4s steps(24) 1.6s forwards}
+.vec.static .p{stroke-dashoffset:0;animation:none}.vec.static .p.dash{opacity:1;animation:none}.vec.static .fb{width:192px;animation:none}
+@keyframes vdraw{to{stroke-dashoffset:0}}
+@keyframes vfade{to{opacity:1}}
+@keyframes vsweep{to{transform:rotate(360deg)}}
+@keyframes fbfill{to{width:192px}}
+.boot{position:absolute;inset:0;z-index:8;display:none;background:#000;padding:1rem 1.2rem;overflow:hidden}
+.boot.on{display:block}
+.boot pre{margin:0;font:inherit;font-size:1.05rem;line-height:1.15;color:var(--ink);white-space:pre-wrap}
+.boot .skip{position:absolute;right:1.2rem;bottom:.7rem;color:var(--dim);font-size:.9rem}
+.screen.off{animation:croff .6s ease-in forwards}
+@keyframes croff{0%{transform:none;filter:none;opacity:1}55%{transform:scale(1,.012);filter:brightness(4);opacity:1}100%{transform:scale(0,.004);filter:brightness(6);opacity:0}}
+.only-native{display:none!important}body.native .only-native{display:flex!important}
+/* config */
+.cfg{position:absolute;inset:0;z-index:6;display:none;flex-direction:column;overflow-y:auto;padding:.85rem 1.2rem;background:color-mix(in srgb,var(--c) 3%,#000)}
+.cfg.open{display:flex;animation:crton .35s ease-out 1}
+.cfg .head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:3px double var(--line);padding-bottom:.35rem;color:var(--c)}
+.cfg .head .t{font-size:1.6rem;letter-spacing:.14em}.cfg .head .s{color:var(--dim)}
+.cfg pre{margin:.5rem 0 0;font:inherit;font-size:1rem;color:var(--dim)}
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 2.2rem}
+@media(max-width:760px){.cgrid{grid-template-columns:1fr}}
+.cfg .row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-size:1.15rem;margin-top:.55rem;color:var(--ink)}
+.cfg .row .k{color:var(--c)}
+.cfg .fill{flex:1;border-bottom:1px dotted var(--line);height:1px;align-self:flex-end;margin-bottom:.3rem}
+.cfg input{background:transparent;border:0;border-bottom:1px solid var(--c);color:var(--c);font:inherit;font-size:1.3rem;outline:0;padding:0 .1rem;text-shadow:inherit}
+.cfg input[type=number]{width:3.6ch;text-align:right;-moz-appearance:textfield;appearance:textfield}
+.cfg input[type=number]::-webkit-outer-spin-button,.cfg input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.cfg input:focus{background:color-mix(in srgb,var(--c) 14%,transparent)}
+.cfg input[type=range]{-webkit-appearance:none;appearance:none;width:5.4rem;height:1rem;border:0;padding:0;cursor:pointer}
+.cfg input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--line)}
+.cfg input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:.5rem;height:.9rem;margin-top:-.4rem;background:var(--c);border:0;border-radius:0;box-shadow:0 0 .5rem var(--c)}
+.cfg input[type=range]::-moz-range-track{height:2px;background:var(--line)}
+.cfg input[type=range]::-moz-range-thumb{width:.5rem;height:.9rem;background:var(--c);border:0;border-radius:0}
+.cfg output{width:3.6ch;text-align:right;color:var(--c)}
+.seg{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.25rem}
+.seg button{min-width:2.2rem;padding:0 .4rem!important;font-size:1.1rem!important}
+.sw{display:flex;gap:.7rem}
+.sw label{display:flex;flex-direction:column;align-items:center;font-size:.8rem;color:var(--dim)}.sw i{font-style:normal}
+.sw input{width:2.1rem;height:1.2rem;padding:0;border:1px solid var(--c);cursor:pointer}
+.sw input::-webkit-color-swatch-wrapper{padding:2px}.sw input::-webkit-color-swatch{border:0}
+.cfg .msg{min-height:1.1em;margin-top:.5rem;color:var(--err)}
+.cfg .acts{position:sticky;bottom:0;margin-top:auto;padding:.6rem 0 .1rem;background:color-mix(in srgb,var(--c) 3%,#000);display:grid;grid-template-columns:repeat(3,1fr);gap:.45rem}
+/* crt overlay */
+.fx{position:absolute;inset:0;pointer-events:none;z-index:9;text-shadow:none}
+.fx i{position:absolute;inset:0}
+.scan{background:repeating-linear-gradient(0deg,rgba(0,0,0,.32) 0 1px,transparent 1px 3px)}
+.roll{height:24%!important;background:linear-gradient(transparent,color-mix(in srgb,var(--c) 7%,transparent),transparent);animation:roll 8s linear infinite}
+@keyframes roll{from{top:-28%}to{top:112%}}
+.glare{background:linear-gradient(128deg,rgba(255,255,255,.07),transparent 26%)}
+.vig{background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.62))}
+.grain{inset:-50%!important;opacity:.07;background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='.9' numOctaves='2'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");animation:gr .6s steps(3) infinite}
+@keyframes gr{0%{transform:translate(0,0)}33%{transform:translate(-3%,2%)}66%{transform:translate(2%,-3%)}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.vec .p{stroke-dashoffset:0!important}.vec .p.dash{opacity:1!important}.vec .fb{width:192px}}
+</style>
+</head>
+<body>
+<main class="screen" id="app">
+  <header class="titlebar"><span class="brand">ESPER//FOCUS<small>interface 2019</small></span><span id="clk"></span>
+    <span class="wc"><button id="w-pin" aria-pressed="false">pin</button><button id="w-min">min</button><button id="w-max">full</button><button id="w-x">x</button></span></header>
+  <div class="prog" aria-hidden="true"><span>[</span><div class="track"><i id="b-fill"></i></div><span>]</span><b id="b-pct">0%</b></div>
+  <div class="modes" role="group" aria-label="Timer mode">
+    <button data-m="focus" aria-pressed="true"></button><button data-m="short" aria-pressed="false"></button><button data-m="long" aria-pressed="false"></button>
+  </div>
+  <div class="main">
+    <section class="col">
+      <div class="log" id="log" aria-live="polite"></div>
+      <label class="prompt" for="cmd"><span>operator@esper:~$</span><input id="cmd" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="type help" aria-label="Command line"></label>
+      <div class="ctrl"><button id="reset">reset</button><button id="go" class="go">start</button><button id="skip">skip</button><button id="conf">config</button></div>
+    </section>
+      </div>
+  <div class="bar"><span id="b-mode"></span><span id="b-time"></span><span id="b-state"></span><span id="b-cyc"></span></div>
+
+  <form class="cfg" id="cfg" autocomplete="off">
+    <div class="head"><span class="t">CONFIG</span><span class="s">/etc/esper.conf</span></div>
+    <pre># durations in minutes (1-180) | speeds: slow, medium, fast (randomized) | volumes 0-100</pre>
+    <div class="cgrid">
+      <div>
+        <label class="row"><span class="k">window_opacity</span><span class="fill"></span><input type="range" id="v-opa" min="30" max="100" step="5" aria-label="Window opacity"><output id="vo-opa" for="v-opa"></output></label>
+        <label class="row"><span class="k">focus_min</span><span class="fill"></span><input id="o-focus" type="number" inputmode="numeric" min="1" max="180"></label><label class="row"><span class="k">short_break_min</span><span class="fill"></span><input id="o-short" type="number" inputmode="numeric" min="1" max="180"></label><label class="row"><span class="k">long_break_min</span><span class="fill"></span><input id="o-long" type="number" inputmode="numeric" min="1" max="180"></label>
+        <div class="row"><span class="k">timer_log</span><span class="fill"></span><span class="seg" id="o-log" role="group" aria-label="Timer log speed"><button type="button" data-v="slow">slow</button><button type="button" data-v="medium">medium</button><button type="button" data-v="fast">fast</button></span></div>
+        <div class="row"><span class="k">ambient_play</span><span class="fill"></span><span class="seg" id="o-amb" role="group" aria-label="Ambient playback"><button type="button" data-v="running">running</button><button type="button" data-v="always">always</button></span></div>
+        <div class="row"><span class="k">random_cmds</span><span class="fill"></span><span class="seg" id="o-chat" role="group" aria-label="Random shell commands"><button type="button" data-v="off">off</button><button type="button" data-v="slow">slow</button><button type="button" data-v="medium">medium</button><button type="button" data-v="fast">fast</button></span></div>
+        <div class="row"><span class="k">crew_chat</span><span class="fill"></span><span class="seg" id="o-crew" role="group" aria-label="Crew chat"><button type="button" data-v="off">off</button><button type="button" data-v="slow">slow</button><button type="button" data-v="medium">medium</button><button type="button" data-v="fast">fast</button></span></div>
+        <div class="row"><span class="k">scope_displays</span><span class="fill"></span><span class="seg" id="o-vis" role="group" aria-label="Scope displays"><button type="button" data-v="off">off</button><button type="button" data-v="slow">slow</button><button type="button" data-v="medium">medium</button><button type="button" data-v="fast">fast</button></span></div>
+        <div class="row"><span class="k">boot_sequence</span><span class="fill"></span><span class="seg" id="o-boot" role="group" aria-label="Boot and shutdown sequence"><button type="button" data-v="on">on</button><button type="button" data-v="off">off</button></span></div>
+        <div class="row"><span class="k">accent_color</span><span class="fill"></span><span class="sw"><label><input type="color" id="c-focus" aria-label="Focus color"><i>focus</i></label><label><input type="color" id="c-short" aria-label="Short break color"><i>short</i></label><label><input type="color" id="c-long" aria-label="Long break color"><i>long</i></label></span></div>
+      </div>
+      <div>
+        <label class="row"><span class="k">vol_ambient</span><span class="fill"></span><input type="range" id="v-amb" min="0" max="100" step="5" aria-label="Ambient volume"><output id="vo-amb" for="v-amb"></output></label><label class="row"><span class="k">vol_chime</span><span class="fill"></span><input type="range" id="v-chime" min="0" max="100" step="5" aria-label="Chime volume"><output id="vo-chime" for="v-chime"></output></label>
+      </div>
+    </div>
+    <div class="msg" id="msg" role="alert"></div>
+    <div class="acts"><button type="submit" class="save">save</button><button type="button" id="defs">defaults</button><button type="button" id="cancel">cancel</button></div>
+  </form>
+  <div class="boot" id="boot" aria-hidden="true"><pre id="boot-t"></pre><div class="skip">press any key to skip</div></div>
+  <div class="fx"><i class="scan"></i><i class="roll"></i><i class="glare"></i><i class="vig"></i><i class="grain"></i></div>
+</main>
+<script src="sfx.js"></script>
+<script>
+
+(function(){
+  var still=window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+  /* state */
+  var VK=['chime','amb'],DEF={focus:25,short:5,long:15},dur={focus:25,short:5,long:15},SP={log:'medium',cmd:'medium',crew:'medium',vec:'medium'},COL={focus:'#3dff7a',short:'#ffb000',long:'#ff4d1f'},DEFCOL={focus:'#3dff7a',short:'#ffb000',long:'#ff4d1f'},vol={chime:.7,amb:.5},DEFVOL={chime:.7,amb:.5},muted=false,ambMode='running',chatter=true,crewOn=true,visualsOn=true,bootOn=true,opac=100;
+  try{var s=JSON.parse(localStorage.getItem('esper.dur'));if(s){['focus','short','long'].forEach(function(k){var n=parseInt(s[k],10);if(n>=1&&n<=180)dur[k]=n});if(s.colors)['focus','short','long'].forEach(function(k){if(/^#[0-9a-f]{6}$/i.test(s.colors[k]))COL[k]=s.colors[k]});if(s.vol)VK.forEach(function(k){var n=Number(s.vol[k]);if(n>=0&&n<=1)vol[k]=n});muted=!!s.muted;if(s.ambMode==='always')ambMode='always';if(s.speeds){if(['slow','medium','fast'].indexOf(s.speeds.log)>-1)SP.log=s.speeds.log;['cmd','crew','vec'].forEach(function(k){if(['off','slow','medium','fast'].indexOf(s.speeds[k])>-1)SP[k]=s.speeds[k]})}else{if(s.interval===5)SP.log='fast';if(s.interval===20||s.interval===30)SP.log='slow';if(s.chatter===false)SP.cmd='off';if(s.crew===false)SP.crew='off';if(s.visuals===false)SP.vec='off'}chatter=SP.cmd!=='off';crewOn=SP.crew!=='off';visualsOn=SP.vec!=='off';if(s.boot===false)bootOn=false;var op0=parseInt(s.opacity,10);if(op0>=30&&op0<=100)opac=op0}}catch(e){}
+  var META={focus:{c:'--focus',run:'subject locked in',idle:'standing by',tag:'FOCUS'},
+            short:{c:'--short',run:'cooling down',idle:'break queued',tag:'SHORT_BREAK'},
+            long:{c:'--long',run:'full recharge',idle:'long break queued',tag:'LONG_BREAK'}};
+  var $=function(i){return document.getElementById(i)};
+  var root=document.documentElement,goBtn=$('go'),app=$('app'),logEl=$('log'),cmd=$('cmd'),cfg=$('cfg'),
+      modeBtns=[].slice.call(document.querySelectorAll('.modes button'));
+    var lastN=0,lastBase='',mode='focus',total=1500,left=1500,running=false,end=0,tick=null,done=0,ac=null,hist=[],hi=0;
+
+  function lum(h){return (0.299*parseInt(h.substr(1,2),16)+0.587*parseInt(h.substr(3,2),16)+0.114*parseInt(h.substr(5,2),16))/255}
+  function applyColors(){['focus','short','long'].forEach(function(k){root.style.setProperty('--'+k,COL[k])});root.style.setProperty('--on',lum(COL[mode])>.55?'#000':'#fff')}
+  function prev(k){var v=$('c-'+k).value;root.style.setProperty('--'+k,v);if(k===mode)root.style.setProperty('--on',lum(v)>.55?'#000':'#fff')}
+  ['focus','short','long'].forEach(function(k){$('c-'+k).addEventListener('input',function(){prev(k)})});
+  function pad(n){return (n<10?'0':'')+n}
+  function fmt(s){return pad(Math.floor(s/60))+':'+pad(s%60)}
+  function stamp(){var d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())}
+  var Q=[],busy=false;
+  function out(t,cls,instant){enqueue({cls:cls,parts:[{t:t}],instant:instant})}
+  function enqueue(it){Q.push(it);if(!busy)pump()}
+  function clearLog(){Q.length=0;logEl.innerHTML=''}
+  function pump(){
+    var it=Q.shift();if(!it){busy=false;return}busy=true;
+    if(it.run){it.run(function(){pump()});return}
+    var r=document.createElement('div');if(it.cls)r.className=it.cls;
+    var sp=it.parts.map(function(p){var e=document.createElement(p.tag||'span');if(p.color)e.style.color=p.color;r.appendChild(e);return e}),n=0;
+    it.parts.forEach(function(p){n+=p.t.length});logEl.appendChild(r);
+    function show(k){var l=k;it.parts.forEach(function(p,i){var c=Math.max(0,Math.min(p.t.length,l));sp[i].textContent=p.t.slice(0,c);l-=c})}
+    function fin(){r.classList.remove('typing');show(n);while(logEl.children.length>80)logEl.removeChild(logEl.firstChild);logEl.scrollTop=logEl.scrollHeight;pump()}
+    if(it.instant||still||Q.length>8||!n){fin();return}
+    r.classList.add('typing');
+    var dur=Math.min(1200,Math.max(300,n*20))*(Q.length>2?.3:1),t0=performance.now();
+    (function step(){
+      if(!r.isConnected){pump();return}
+      var k=Math.min(n,Math.floor((performance.now()-t0)/dur*n));show(k);logEl.scrollTop=logEl.scrollHeight;
+      if(k>=n)fin();else setTimeout(step,16)})();
+  }
+  function sys(t,cls){out('['+stamp()+'] '+t,cls)}
+  function flash(){logEl.classList.remove('on');void logEl.offsetWidth;logEl.classList.add('on')}
+
+  function render(){
+    var t=fmt(Math.max(0,Math.ceil(left)));
+    document.title=(running?t+' \u00b7 ':'')+'ESPER // Focus';
+    goBtn.textContent=running?'pause':'start';app.classList.toggle('running',running);
+    var filled=(done>0&&done%4===0&&mode==='long')?4:done%4;
+    $('b-mode').textContent=META[mode].tag.toLowerCase();$('b-time').textContent='T-'+t;var pct=total?Math.round((total-left)/total*100):0;$('b-fill').style.width=pct+'%';$('b-pct').textContent=pct+'%';
+    $('b-state').textContent=running?'running':(left<total?'paused':'idle');$('b-cyc').textContent='cycle '+filled+'/4';
+    modeBtns.forEach(function(b){b.textContent=b.dataset.m+' '+dur[b.dataset.m]+'m'});
+  }
+  addEventListener('resize',function(){render()});
+  function setMode(m,quiet){
+    mode=m;crewCur=null;crewGap=0;stop();total=left=dur[m]*60;
+    root.style.setProperty('--c','var('+META[m].c+')');applyColors();
+    modeBtns.forEach(function(b){b.setAttribute('aria-pressed',b.dataset.m===m)});
+    if(!quiet){flash();sys('mode='+META[m].tag+' t='+fmt(total),'ok')}render();
+  }
+  /* flavor text */
+  var V={focus:['Calculating','Processing','Compiling','Indexing','Calibrating','Resolving','Decrypting','Optimizing','Parsing','Synthesizing','Defragmenting','Traversing','Authenticating','Cross-referencing','Hashing','Interpolating','Triangulating','Rebuilding','Normalizing','Buffering','Compressing','Rerouting','Verifying','Sequencing'],
+         rest:['Flushing','Cooling','Draining','Purging','Archiving','Parking','Stabilizing','Venting','Decompressing','Restoring','Rebalancing','Idling','Reindexing','Releasing','Spooling down','Dumping']};
+  var O=['neural handshake','flux matrix','retinal scan buffer','packet lattice','memory sector 7G','ocular cache','subnet 10.0.4.x','quantum hash table','sector grid','biometric index','signal harmonics','proxy relay','cipher stack','kernel heap','dendrite array','thermal envelope','data conduit','audio spectrum','uplink beacon','telemetry stream','vector field','core dump','protocol layer','mesh nodes','polygon cache','sync daemon','tensor pool','firewall rules','checksum table','latency map'];
+  var X=['Establishing secure uplink to orbital relay','Tracing packet route through 14 hops','Bypassing legacy handshake protocol','Rotating encryption keys for session','Syncing clock drift against atomic reference','Mapping neural pathways to local cache','Negotiating TLS tunnel with remote node','Scanning ports 8000-9000 for anomalies','Compiling shader pipeline for display matrix','Rebuilding index across 4096 shards','Running diagnostics on fusion coil','Patching vulnerability in subsystem 12','Allocating 64MB to render buffer','Querying archive for matching signature','Overclocking cortex bridge to 3.2 GHz','Decompressing memory fragments from cold storage'];
+  var T=['','',' ... ok',' ... stable',' ... nominal',' ... locked',' ... 100%',' ... done'];
+  function pick(a){return a[Math.floor(Math.random()*a.length)]}
+  function hex(){return '0x'+Math.floor(Math.random()*65535).toString(16).padStart(4,'0')}
+  function flavor(){
+    var t;
+    do{
+      if(Math.random()<.22)t=pick(X);
+      else{t=pick(mode==='focus'?V.focus:V.rest)+' '+pick(O);var r=Math.random();
+        t+=r<.18?' ['+hex()+']':r<.34?' ('+Math.floor(Math.random()*900+100)+' ms)':pick(T)}
+    }while(t===lastBase);
+    lastBase=t;return t;
+  }
+  function emit(el){enqueue({cls:'tk',parts:[{t:'> '},{t:flavor()+' '},{t:fmt(el),tag:'b'},{t:'  T-'+fmt(Math.max(0,Math.round(total-el))),tag:'em'}]})}
+  var CREW={L:['LAINE','#8ec5ff'],H:['HIERRO','#ff6a4d'],B:['BLUE','#3b82ff'],K:['KYRIE','#b070ff'],M:['MAXX','#ff3df0'],I:['IKI','#ffa23d'],Y:['YOKO','#ffd84a']};
+  /* each entry: [mode (w = focus, r = break, a = any), "WHO|line", "WHO|line", ...] -- single-line entries are lone comments */
+  var CONV=[
+    ["w","I|Patrol drone over sector 7. Two minutes before it circles back.","L|Copy. Moving.","B|I can loop its camera. Probably.","L|Probably.","B|Fine. Definitely."],
+    ["w","H|Rooftop's clear. Nobody home but pigeons.","M|PIGEONS. NOT FOR LONG.","H|Maxx. No.","M|i didn't even say anything","H|You were thinking it."],
+    ["w","B|Firewall's down. You're welcome.","L|Noted.","B|Noted? I bled for that firewall.","L|Good work.","B|...ugh. Don't be nice, it's weird."],
+    ["w","Y|new intel! the mark moved his lunch to noon sharp","I|That's not new. I told you an hour ago.","Y|it's new to ME"],
+    ["w","K|The Skeleton is holding the stairwell. He's very proud of himself.","L|Tell him good work.","K|I did. He rattled."],
+    ["w","L|Hierro, status.","H|Doorway's mine. Nothing comes through it I don't like.","L|And if something does?","H|Then it learns something."],
+    ["w","M|stim count: don't ask. charge count: four. feelings: EXCELLENT","K|Maxx, drink some water.","M|hydration is a state of mind","H|Drink the water, kid.","M|...fine"],
+    ["w","I|Camera blind spot opens in ten seconds.","Y|nine. i'm counting faster.","I|That is not how counting works.","Y|it's how MY counting works"],
+    ["w","B|Laine, your mic's open. Did you just sigh?","L|No.","B|You totally sighed.","L|I breathed.","B|Dramatically."],
+    ["w","I|NCPD hunter unit inbound. Red hair, long coat. Do not engage.","L|...The Captain.","I|You know her?","L|Everyone knows her."],
+    ["w","H|Heavy footsteps on level three. Bigger than mine.","B|Nothing's bigger than you.","H|That's what worries me."],
+    ["w","K|The Wraith says the east corridor is quiet. Too quiet.","B|Nobody says 'too quiet' unironically.","K|The Wraith does."],
+    ["w","Y|archive says this building was a bakery in 2031. fun?","L|Not now.","Y|BAKERY","I|Yoko.","Y|bread tho"],
+    ["w","M|ok hypothetically if a door is locked","B|I'll hack it.","M|or.","B|Don't.","M|OR","L|Maxx."],
+    ["w","L|Blue, I need that door.","B|Say please.","L|Blue.","B|Say it nicer.","L|...Please.","B|Wow. Growth. Door's open, don't get used to it."],
+    ["w","I|Signal's clean. Nobody's listening but us.","Y|and whoever's listening to us listening","I|Yoko.","Y|i'm just saying"],
+    ["w","H|Reloading. Give me a minute.","M|A MINUTE??","H|It's a big gun."],
+    ["w","B|Found their server room. It's a closet. With a lock from 2019.","L|Can you open it?","B|Can I open it. Cute.","B|Done."],
+    ["w","K|Hardlight's holding. The Reaper's scouting ahead.","L|Keep him on a short leash.","K|He's a Reaper, Laine. The leash is a suggestion."],
+    ["w","Y|heads up: three guards. one asleep, one on his phone, one sad","I|Describe their weapons, not their feelings.","Y|the sad one has a shotgun"],
+    ["w","L|Everyone check in.","H|Here.","B|Here, unfortunately.","K|Present.","M|HERE AND VIBRATING","I|Base is live.","Y|base is also live"],
+    ["w","B|Laine, left. No, your other left.","L|I know my lefts.","B|Then why are you in the vents?","L|...","B|Just checking."],
+    ["w","I|Operator is on a focus block. Keep the open channel quiet.","Y|define quiet","I|Less than you.","Y|rude"],
+    ["w","H|Heard the lightning cannon still needs a name.","M|ZAPPY","H|No.","B|Sparky.","H|No.","K|The Storm Maker.","H|...that's actually good."],
+    ["w","L|Quiet. Keep it that way."],
+    ["w","L|Eyes up. We don't have long."],
+    ["w","L|Moving. Cover me."],
+    ["w","H|Everything's fine. I'm just saying it out loud to feel better."],
+    ["w","H|Anyone need something heavy picked up? Or put down?"],
+    ["w","B|Mapping their network now. It's embarrassing, honestly."],
+    ["w","B|Their security is a screen door in a hurricane."],
+    ["w","B|I've been told I'm 'a lot'. I prefer 'a plan'."],
+    ["w","K|The dead are restless tonight. Mostly bored, though."],
+    ["w","K|Hardlight's steady. Summons are in position."],
+    ["w","M|i can hear something from here that i could blow up"],
+    ["w","M|everything is better with a little bang"],
+    ["w","I|Traffic cams show nothing unusual. That's unusual."],
+    ["w","I|Pattern detected. I don't like it."],
+    ["w","I|Inbound comms. Stay off the open channel."],
+    ["w","Y|wow this guy's emails are a mess. should i read them out loud"],
+    ["w","Y|i have the whole building memorized. not on purpose"],
+    ["r","H|Made chili. Real beans. Who wants some?","M|ME","B|Is it edible?","H|It's chili.","L|Save me a bowl.","H|Always do, boss."],
+    ["r","B|Break time. Plan: nap, snacks, victory.","L|You've won nothing.","B|Not yet."],
+    ["r","K|I made tea. The Brute helped. He held the cup. Gently.","H|Aw.","K|Don't tell him you said that."],
+    ["r","M|ranking explosives. 1: the big one. 2: the other big one. 3: the third big one","I|That's not a ranking.","M|it's a VIBE"],
+    ["r","Y|fun fact: the base has 47 vending machines","I|Forty-three. Four are broken.","Y|four are SAD"],
+    ["r","L|Everyone's alive. Good.","K|That's the most you've said all day.","L|I'll try to say less."],
+    ["r","B|Laine is drinking water like a normal human. Scandalous.","L|Go back to your screen.","B|Make me.","L|...No.","B|Coward."],
+    ["r","H|Cleaned the minigun. Took an hour. She's beautiful.","M|can i name her","H|She has a name.","M|Boom Boom?","H|...no."],
+    ["r","I|Reminder: sleep exists.","Y|reminder: so does coffee","I|Those cancel out.","Y|exactly"],
+    ["r","K|Breathe. Stretch. Check on each other.","B|Is this a mother thing?","K|It's a necromancer thing. You'd be surprised."],
+    ["r","M|does anyone have a spare stim? asking for me","L|No.","H|No.","K|Absolutely not.","M|...worth a shot"],
+    ["r","Y|break's on! want me to read the news out loud","B|Please no.","Y|too late. 'Local man loses argument to vending machine.'","I|That's not news.","Y|it's local"],
+    ["r","L|Blue. Stretch your wrists. Those hands are worth more than the rest of us.","B|...are you being nice?","L|It's practical.","B|Sure it is."],
+    ["r","H|Anybody want to hear about the time I carried a vending machine up eleven flights?","L|No.","B|Yes.","H|Great. So it started with a bet."],
+    ["r","I|Rest those eyes, operator. Look at something far away.","Y|a wall. or a nicer wall."],
+    ["r","Y|want me to pull up the old city maps? no? cool, doing it anyway"],
+    ["r","B|Stretching. Don't look."],
+    ["r","B|Laine, nap schedule? Asking for me. Not you. Just me."],
+    ["r","K|Quiet moment. Enjoy it."],
+    ["r","M|i'm fine. i'm FINE. i'm super fine"],
+    ["r","H|Save me a seat. And a snack."],
+    ["r","L|Rest while you can."],
+    ["r","I|Systems nominal. Take a breath."],
+    ["r","Y|coffee level critical. alert. alert."],
+    ["a","K|Death is just another resource. Anyone want tea?"],
+    ["a","H|No fear. No mercy. Just firepower. And snacks."],
+    ["a","B|Better. Faster. Further. Also louder, apparently."],
+    ["a","M|more stim. more bang. more life."],
+    ["a","I|The data always tells the truth."],
+    ["a","Y|humans are just another codebase"],
+    ["a","L|Some wars never end."]
+  ];
+  /* ---- more crew: hideout life, ASCII drops, reactions to your session, replies to you ---- */
+  var ART={
+    coffee:["   ( (","    ) )","  ........","  |      |]","  \\      /","   `----'"],
+    bomb:["        *","      ,/","   ,-'-.","  /     \\"," |   B   |","  \\     /","   '---'"],
+    cat:[" /\\_/\\","( o.o )"," > ^ <"],
+    skull:["   ___","  /   \\"," | o o |","  \\ ^ /","   |||"],
+    minigun:["   .-----------."," =[|===|===|===|>>>","   '-.__.-'|_|"],
+    duck:["   __"," <(o )___","  ( ._> /","   `---'"],
+    sign:[" .----------."," | OUT OF   |"," | ORDER    |"," '----------'"],
+    bread:["  _.---._"," /       \\","(  BREAD  )"," '-.___.-'"],
+    vend:[" .--------."," |[ :::: ]|"," |[ :::: ]|"," |  (T_T) |"," '---||---'"],
+    robot:[" [o_o]  [^_^]"," /|_|\\  /|_|\\"," Iki    Yoko"],
+    chart:[" ^"," |   #"," | # #   #"," | # # # #"," +---------> t"],
+    train:["  ____________________"," | [] [] [] [] [] []  |>"," |____________________|"," '-O--O--------O--O-'"],
+    gerald:["  \\     /","   \\___/","    | |   <- Gerald"]
+  };
+  var CONV2=[
+    ["a","B|Train's late again. Forty minutes.","I|Transit authority reports 'unexpected delays'.","Y|they always report unexpected delays. when is it ever expected","L|Take the bus.","B|The bus is also late.","L|Then walk."],
+    ["a","B|Status of my commute:","B|@train","L|That's the train. It's leaving.","B|Without me. As is tradition."],
+    ["a","I|NCPD closed off Fifth and Dray. Detour adds twenty minutes.","H|What for?","I|Unclear. Lots of lights, no explanation.","Y|so, normal day"],
+    ["a","H|Elevator's stuck on seven again.","M|i can fix it","H|No.","M|with a small charge","H|Nobody is blowing up the elevator.","K|Stairs are good for the heart, Hierro.","H|I'm on the ninth floor, Kyrie.","H|@sign"],
+    ["a","Y|power just flickered. did everyone's soul leave their body or just mine","K|Mine's fine. I checked.","I|Backup generator engaged. Forty minutes of power.","L|Then we have forty minutes."],
+    ["a","B|The noodle place downstairs is closed. Sign says 'back soon'.","L|That sign has been there since March.","B|I know. I'm grieving."],
+    ["a","Y|it's raining indoors. i put a bucket under it. he's called Gerald now","Y|@gerald","H|Gerald's been dripping for a week.","I|Gerald is a leak. Call the landlord.","Y|the landlord doesn't exist iki","I|Then it's a feature."],
+    ["a","H|Drone dropped off my order. On the wrong roof.","M|was it the big box?","H|Yes.","M|...i may have it","H|Maxx.","M|it's safe!! mostly"],
+    ["a","B|The neon outside my window has been buzzing for two days. I can feel it in my teeth.","K|Put on some music.","B|The music is also buzzing.","L|Move your desk.","B|There's no room, Laine. We live in a closet with ambitions."],
+    ["a","I|Air quality: poor. Smog alert until eighteen hundred.","H|So, windows closed.","K|I'll light the filters.","Y|ooh smog sunset. the pretty one"],
+    ["a","Y|vending machine ate my credits again","Y|@vend","B|It's a mugger with a snack problem.","H|Let me talk to it.","Y|hierro don't hit it","H|I wasn't going to hit it.","H|...I was going to lean on it."],
+    ["a","M|what's the wifi password","B|It's on the fridge.","M|which fridge","B|The fridge. The only fridge.","M|ok. i'll go find it. i've found two more fridges, long story"],
+    ["a","H|Somebody ate my leftovers.","K|Not me.","B|Not me.","M|...","H|Maxx.","M|they looked abandoned!!","H|They had a label. It said HIERRO."],
+    ["a","L|Who has my chair?","B|Define 'has'.","L|Blue.","B|It's ergonomic! I'm protecting my spine.","L|It's MY ergonomic chair.","B|Possession is nine-tenths of the law.","L|Fine. I'll take yours.","B|You wouldn't dare."],
+    ["a","I|Reminder: hideout rent is due on the first.","Y|we have a landlord??","I|Anonymous. Paid in cash. Left in a vent.","Y|oh good. normal arrangement"],
+    ["a","B|My arm wants to update. Twelve minutes offline.","L|Not now.","B|It's a security patch!","L|Not. Now.","B|Fine, grandpa."],
+    ["a","K|My ocular implant says my free trial has ended.","H|Free trial?","K|Of my own eyes.","Y|welcome to the future. it's 9.99 a month","I|Do not pay it. I'll patch it.","K|Thank you, Iki."],
+    ["a","M|the ad drone outside is projecting a soda onto my ceiling","B|Close your blinds.","M|i like the soda","L|Maxx.","M|it's a good soda"],
+    ["a","M|ok so the laundry situation","H|What did you do.","M|nothing! it's just... louder than expected","K|Is it on fire?","M|it WAS","I|Is it still?","M|define still"],
+    ["a","K|The ferns are thriving. Soil's a little... enriched.","H|I'm afraid to ask.","K|Don't ask.","Y|they LOVE it. they're so green","B|They're glowing, Kyrie."],
+    ["a","K|The Wraith adopted a cat. He's insufferably proud.","K|@cat","H|Aw.","K|It hates him. It's a perfect match."],
+    ["a","M|have you guys met Gary? he's a cockroach. he's my best friend","L|No.","H|Kid, no.","M|he survived the laundry!!","K|...Of course he did."],
+    ["a","I|Water rationing starts at ten. Hot water, anyway.","B|So, showers in the next hour.","H|Already done.","Y|me too","M|i don't use hot water","K|We can tell, Maxx."],
+    ["a","H|Stairwell lights are out again.","B|I'll hack the circuit.","H|It's a lightbulb.","B|I'll hack the lightbulb.","L|Just replace it.","B|You take all the fun out of everything."],
+    ["a","Y|courier says he's outside. no he isn't. the camera shows nothing","I|He's behind the pillar.","Y|why","I|He's afraid of Hierro.","H|That's fair."],
+    ["a","I|Metro workers are on strike. All lines suspended.","B|So we all stay here.","L|Suits me.","K|A quiet day, then.","M|a QUIET day. sure. sure"],
+    ["a","B|My parts shipment is delayed. Customs 'lost' it.","H|Customs didn't lose it.","B|I know. Somebody sold it.","L|Want me to find who?","B|...Maybe. Possibly. Don't make it weird."],
+    ["a","H|Street's flooded outside. Knee-deep.","M|ooh swimming","K|Do not swim in the street.","M|ok but what if it's a good puddle"],
+    ["a","H|AC's dead again.","B|I'm melting.","K|You're welcome to join the dead.","B|Cold, but I'm not that desperate.","Y|iki and i put our feet in a bucket. highly recommend"],
+    ["a","L|Anybody seen my keys?","B|You hung them on the hook.","L|The hook's empty.","B|Check your pocket.","L|...","B|You're welcome."],
+    ["a","Y|can we rename the team chat? 'Operation Coffee' sounds nice","L|No.","Y|'The Hideout Gang'","L|No.","Y|'Laine's Angels'","L|...Why do you do this.","Y|because you reply"],
+    ["a","H|Eggs are forty credits a dozen now.","K|Forty?!","H|Forty.","B|I'm going to rob a chicken.","L|You're going to buy eggs, Blue.","B|With whose money?"],
+    ["a","B|Somebody hacked the billboard outside. It's just a picture of a duck.","I|It's been up since morning.","Y|@duck","Y|the duck is great","L|...Did you do this?","B|I would never.","B|...maybe."],
+    ["a","H|Neighbor's playing bass again. Walls are shaking.","M|do you think he'd want... enhancements","H|To his walls?","M|to his speakers","K|Maxx, go be normal somewhere."],
+    ["a","I|Forecast: acid rain from fifteen hundred. Bring a hood.","Y|acid rain!! my favorite one","K|That's not a favorite anything.","Y|it makes the neon prettier"],
+    ["a","B|Night market's open. Anyone want something?","H|Dumplings.","M|FIREWORKS","K|Tea.","L|Nothing.","B|Laine wants dumplings.","L|...Two.","B|Called it."],
+    ["a","M|hot take: explosions are just really fast fires","I|That is correct. That is also not a hot take.","M|it's hot though","K|It IS hot, Maxx. Step back."],
+    ["a","Y|something in the wall is making a noise. like a purr?","H|It's the pipes.","Y|it's a ghost pipe","K|It's possible, actually.","H|Kyrie, don't encourage her."],
+    ["a","B|The printer ate my page again.","L|You can print remotely.","B|I did. It's still eaten.","I|The printer is jammed. It has been since February.","B|Then why does it keep ACCEPTING jobs."],
+    ["a","Y|this is the last of the coffee","Y|@coffee","I|That is an empty cup.","Y|it's a METAPHOR"],
+    ["a","M|my emotional support device","M|@bomb","K|Please put it down.","M|it's not armed!","M|...yet"],
+    ["a","K|Doodled something during the briefing.","K|@skull","L|Is that me?","K|It's everyone, eventually."],
+    ["a","Y|iki and i, as ascii:","Y|@robot","I|I'm the one with the lenses.","Y|you're the one with the mood"],
+    ["r","K|Found an old radio. Jazz from the old broadcast bands.","B|Turn it up.","H|That's actually nice.","Y|it sounds like a rainy bar. i love it"],
+    ["r","H|Tonight's menu: noodles. With extra noodles.","L|Sounds good.","H|You said that last night.","L|Still true."],
+    ["r","Y|who wants to play cards? loser does dishes","M|i'm in!!","B|You cheat, Maxx.","M|i prefer 'creative interpretation'","K|I'll deal. Kindly.","L|I'll play."],
+    ["r","M|karaoke night!! i call 'explosive love song'","H|No.","K|Maybe.","B|Only if Laine sings.","L|No.","B|Then it's a no from me too."],
+    ["r","I|It's late. Everyone should sleep.","Y|you first","I|I will.","Y|you won't","I|...No."],
+    ["r","K|It's Hierro's birthday on Friday. Nobody tell him I know.","H|I can hear you. We're on an open channel.","K|...Oops.","H|Appreciate it, though."],
+    ["r","H|Cleaned the big one. Look at her.","H|@minigun","M|ooooh","H|Hands off."],
+    ["w","I|Sector scan done. Two hostiles. One is probably a dog.","L|Probably?","I|It moves like a dog.","H|Dogs are fine."],
+    ["w","Y|route analysis: fastest path crosses an NCPD checkpoint","B|Slowest path crosses a landlord.","L|Take the checkpoint."],
+    ["w","K|The Wraith's seeing something in the east stairwell. Doesn't like it.","L|Details?","K|He says 'tall'.","H|...Great."],
+    ["w","I|Productivity chart for the week. Today is the tall one.","I|@chart","Y|today's the tall one!!","I|Aspirational."],
+    ["w","Y|archive: bakery history unlocked","Y|@bread","I|That is not what archive means.","Y|it's art"]
+  ];
+  CONV=CONV.concat(CONV2);
+  var REACT={
+    start:[["B|Cracking a server. Don't talk to me."],["H|Cleaning the heavy gear. Quietly. For once."],["K|Tending the garden. The living bits, anyway."],["I|Reconciling the logs. See you at the bell."],["Y|i'll be over here being productive. watch me."],["L|Heads down. Let's work."],["M|i will be building something. or defusing it. one of those"],["I|Operator's on a block. Keep it down.","Y|define down","I|Yoko."],["H|Alright, kid. Focus time. I've got your back."],["B|If I catch anyone checking messages I'm telling Laine."]],
+    brk:[["H|Break! Finally."],["Y|BREAK. snack time."],["K|Rest well."],["B|Break time. Naps are underrated."],["I|Break started."]],
+    resume:[["L|Back at it."],["H|Welcome back, kid."],["B|Oh, the operator returns."],["Y|you're back!! we didn't touch anything"],["I|Timer resumed."],["K|Pick up where you left off."]],
+    pause:[["H|Taking a breather? Take your time."],["I|Timer paused."],["Y|ooh break! ...is it a break?"],["B|Did somebody get distracted? Gasp."],["L|Pause is fine. Don't wander off."]],
+    focusDone:[["H|That's a cycle. Nice work, kid."],["L|Good session."],["K|Well done. Stretch."],["B|Okay, fine. That was good."],["I|Cycle logged."],["Y|YAYYY. snacks?"],["M|BOOM. that's the sound of a finished task."],["H|One more down. Proud of you.","B|Aw.","H|Blue.","B|What? I'm being supportive."]],
+    breakDone:[["L|Break's over. Back to it."],["I|Break complete."],["B|Back to work. Ugh. Good luck."],["H|Alright, round two."],["K|Let's go. You've got this."],["Y|noooo the break was so nice"],["M|BACK IN THE FIGHT"]],
+    long:[["K|Four cycles. That's a proper break. Go outside."],["H|Long break! I'm making something."],["L|You earned this one."],["Y|LONG BREAK long break long break"],["B|Big break. Don't waste it."],["I|Four cycles complete. Impressive."]],
+    skip:[["L|Skipping. Noted."],["B|Cheating the timer. Bold."],["H|Moving on, then."],["I|Phase skipped."]]
+  };
+  var FIRST={
+    morning:[["Y|morning!! coffee level: critical","H|Morning, kid. Coffee's on."],["K|Good morning. Sleep well?"],["L|Morning, operator."]],
+    afternoon:[["H|Afternoon! Had lunch yet?"],["I|Afternoon. Systems nominal."],["Y|afternoon!! the vending machine is behaving today"]],
+    evening:[["B|Evening. Late start, huh?"],["K|Good evening. The night shift begins."],["L|Evening, operator."]],
+    night:[["I|It's past midnight. You should sleep.","Y|you first iki","I|I'm working.","Y|so's the operator"],["L|Late night. Don't burn out."],["K|The dead are up late tonight. So are you."]]
+  };
+  function tod(){var h=new Date().getHours();return h<5?'night':h<12?'morning':h<17?'afternoon':h<22?'evening':'night'}
+  function firstOfDay(){try{var k=new Date().toDateString();if(localStorage.getItem('esper.day')!==k){localStorage.setItem('esper.day',k);return true}}catch(e){}return false}
+  function startEvent(fresh){if(!fresh)return 'resume';if(mode!=='focus')return 'brk';return firstOfDay()?'first':'start'}
+  function typingItem(code,ms){
+    return {run:function(done){
+      var c=CREW[code],r=document.createElement('div'),b=document.createElement('b'),s=document.createElement('span'),n=0;
+      r.className='chat typing-ind';b.style.color=c[1];b.textContent='<'+c[0]+'>';s.textContent=' is typing.';r.appendChild(b);r.appendChild(s);
+      logEl.appendChild(r);logEl.scrollTop=logEl.scrollHeight;
+      var iv=setInterval(function(){s.textContent=' is typing'+'.'.repeat(1+(++n%3))},280);
+      setTimeout(function(){clearInterval(iv);if(r.parentNode)r.parentNode.removeChild(r);done()},ms);
+    }};
+  }
+  function artBlock(code,key){(ART[key]||[]).forEach(function(l){enqueue({cls:'ascii',parts:[{t:l,color:CREW[code][1]}]})})}
+  function crewSay(code,text){
+    if(text.charAt(0)==='@'){artBlock(code,text.slice(1));return}
+    if(!still&&Q.length<3)enqueue(typingItem(code,Math.min(1500,350+text.length*20)));
+    var c=CREW[code];enqueue({cls:'chat',parts:[{t:'<'+c[0]+'>',tag:'b',color:c[1]},{t:' '+text}]});
+  }
+  function crewReact(ev){
+    if(!crewOn)return;
+    var pool=ev==='first'?FIRST[tod()]:REACT[ev];if(!pool||!pool.length)return;
+    pool[kR(pool.length)].forEach(function(l){var m=l.split('|');crewSay(m[0],m.slice(1).join('|'))});
+  }
+  var NAMES={laine:['L'],hierro:['H'],blue:['B'],kyrie:['K'],krye:['K'],maxx:['M'],max:['M'],iki:['I'],yoko:['Y'],twins:['I','Y']};
+  var HEYL={L:["Operator.","Hey.","Good to see you."],H:["Hey, kid!","Well hey there. Pull up a chair.","Hey! Want some chili?"],B:["Oh look, the operator remembered we exist.","Hi, operator. Laine, say hi.","Sup."],K:["Hello, dear.","Hello. Tea?","Hi, friend."],M:["HEYYYYY","HI HI HI","hey!! guess what i made"],I:["Hello.","Hello, operator. Systems nominal.","Hi."],Y:["hi hi hi!!","HELLO!!","hey!! want to hear about the vending machine"]};
+  var THXL={L:["Anytime.","Don't mention it."],H:["Anytime, kid.","Of course."],B:["...You're weird.","Don't get sappy."],K:["Of course, dear.","Always."],M:["WHAT DID I DO","you're welcome!! for whatever"],I:["Acknowledged.","Noted."],Y:["aww","you're so polite!!"]};
+  var BYEL={L:["Stay safe.","Later."],H:["Take care, kid.","Come back soon."],B:["Don't let the bugs bite.","Bye. Don't miss us."],K:["Rest well.","Be kind to yourself."],M:["BYE!! come back!!","bye bye BOOM"],I:["Goodnight.","Signing off."],Y:["bye bye!! sleep!!","see you soon!!"]};
+  var HOWL={L:["Alive.","Fine."],H:["Doing alright! Made chili.","Can't complain. Well, I can. But I won't."],B:["Surviving. Barely. Thanks for asking, that's new.","Hacking. Winning."],K:["Peaceful. The dead are quiet today.","Well. And you?"],M:["AMAZING. never better. slept 0 hours","i'm FINE. i'm super fine"],I:["Systems nominal.","Operating within parameters."],Y:["i'm great!! i learned a new word. 'petrichor'","great!! the vending machine gave me two snacks"]};
+  var CALL={L:["What.","Yeah?","Speak."],H:["Yeah, kid?","Right here.","Need something heavy moved?"],B:["Busy. Hacking. Leave a message.","Hm? Oh. It's you.","What did Laine do now?"],K:["Yes, dear?","I'm listening.","The dead say hi."],M:["YES","WHAT WHAT WHAT","present and slightly on fire"],I:["Listening.","Go ahead.","Yes, operator?"],Y:["yes!! hi!!","ooh me?","i'm here i'm here"]};
+  var ACKL={L:["Copy that.","Noted."],H:["Heard you, kid.","Got it."],B:["Was that for me?","Fascinating. Truly."],K:["Mm-hm.","I hear you."],M:["AGREED. with what? doesn't matter","yes. maybe. BOOM"],I:["Noted.","Logged."],Y:["ooh. say more.","wait wait wait. go on"]};
+  function sayOne(code,pool){crewSay(code,pool[code][kR(pool[code].length)])}
+  function chatReply(raw){
+    var s=raw.toLowerCase().trim(),codes=['L','H','B','K','M','I','Y'];
+    function some(k,pool){shuffle(codes.slice()).slice(0,k).forEach(function(x){sayOne(x,pool)})}
+    var greet=/^(hey|hi|hello|yo|sup|hiya|heya|howdy|hola|oi|gm|morning|good (morning|evening|afternoon|night))\b/.test(s);
+    var hit=[];for(var nm in NAMES){if(new RegExp('\\b'+nm+'\\b').test(s))hit=hit.concat(NAMES[nm])}
+    if(hit.length){hit.forEach(function(x){sayOne(x,greet?HEYL:CALL)});return true}
+    if(greet){some(2+kR(3),HEYL);return true}
+    if(/^(thanks|thank you|thx|ty|cheers)\b/.test(s)){some(1+kR(2),THXL);return true}
+    if(/^(bye|goodbye|cya|see ya|goodnight|gn|night|later)\b/.test(s)){some(2,BYEL);return true}
+    if(/how (are|r) (you|u|ya)|how('?s| is) it going|what('?s| is) up|wassup/.test(s)){some(2+kR(2),HOWL);return true}
+    if(/coffee/.test(s)){crewSay('Y','COFFEE?? where');crewSay('H',"I'll put a pot on.");return true}
+    if(/\b(hungry|food|lunch|dinner|chili|snack)\b/.test(s)){crewSay('H',"Chili's on. Come eat.");crewSay('M','FOOD');return true}
+    if(/\b(bomb|boom|explo|dynamite|grenade)/.test(s)){crewSay('M','BOOM?? did someone say boom');crewSay('K','Maxx. No.');return true}
+    if(/\b(tired|exhausted|burnt out|burned out|stressed|overwhelmed|struggling)\b/.test(s)){crewSay('K','Breathe. One thing at a time.');crewSay('H','Rest if you need to, kid. The work keeps.');crewSay('I','Tip: shorter blocks help. Try focus 15.');return true}
+    if(/\b(hack|password|wifi|wi-fi)\b/.test(s)){crewSay('B',"Did somebody say hack? I'm listening.");return true}
+    if(/\blove\b/.test(s)){crewSay('B','Gross.');crewSay('Y','awww');return true}
+    if(/\s/.test(s)){sayOne(codes[kR(7)],ACKL);return true}
+    return false;
+  }
+  /* ---- analog vector displays that draw themselves into the log ---- */
+  var VEC_NAMES=['terrain','network','radar','plan','orbit','route','signal','profile','readout'];
+  var VEC_ALIAS={scan:'terrain',trace:'network',radar:'radar',plan:'plan',orbit:'orbit',route:'route',intercept:'signal',grid:'profile',profile:'profile',telemetry:'readout',readout:'readout'};
+  var VEC_TITLE={terrain:'SECTOR SCAN',network:'NETWORK TRACE',radar:'PROXIMITY RADAR',plan:'BREACH PLAN',orbit:'ORBITAL SURVEY',route:'ROUTE ANALYSIS',signal:'SIGNAL INTERCEPT'};
+  var VEC_INTRO={terrain:["I|Pushing the sector scan to your display.","Y|sector scan incoming!! it's very pointy"],network:["B|Network trace. Watch me walk right in.","I|Trace complete. Sending the route."],radar:["I|Radar overlay inbound.","L|Contacts on the board. Eyes open."],plan:["I|Floor plan and patrol pattern, on screen.","Y|breach plan!! i drew the little arrows"],orbit:["Y|satellite pass!! look look look","I|Orbital survey coming through."],route:["I|Route analysis ready.","H|Here's the way in. And the way out."],signal:["B|Intercepted a signal. Decrypting now.","Y|we caught a signal!! it's screaming"],profile:["Y|plotting the approach profile. watch me click","I|Approach profile on your display."],readout:["I|System readout, coming through.","B|Telemetry feed. Pretty, right?"]};
+  function vR(a,b){return a+Math.random()*(b-a)}
+  function vN(n){return n.toFixed(1)}
+  function vP(d,dl,du,cls){var dash=cls&&cls.indexOf('dash')>-1;return '<path class="p'+(cls?' '+cls:'')+'"'+(dash?'':' pathLength="1"')+' d="'+d+'" style="--d:'+dl.toFixed(2)+'s;--t:'+(du||.6)+'s"/>'}
+  function vRect(x,y,w,h,dl,du,cls){return vP('M'+x+' '+y+'h'+w+'v'+h+'h'+(-w)+'Z',dl,du,cls)}
+  function vLine(x1,y1,x2,y2,dl,du,cls){return vP('M'+vN(x1)+' '+vN(y1)+'L'+vN(x2)+' '+vN(y2),dl,du,cls)}
+  function vEll(cx,cy,rx,ry){return 'M'+vN(cx-rx)+' '+vN(cy)+'a'+vN(rx)+' '+vN(ry)+' 0 1 0 '+vN(2*rx)+' 0a'+vN(rx)+' '+vN(ry)+' 0 1 0 '+vN(-2*rx)+' 0Z'}
+  function vT(x,y,txt,dl,sz){return '<text x="'+x+'" y="'+y+'" class="t" data-t="'+txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')+'" data-d="'+Math.round(dl*1000)+'" style="font-size:'+(sz||14)+'px"></text>'}
+  function vCross(x,y,dl){return vLine(x-13,y,x+13,y,dl,.4)+vLine(x,y-13,x,y+13,dl,.4)+vLine(x-13,y+3,x+13,y+3,dl+.05,.4)}
+  function vF(){return (Math.random()*90+5).toFixed(2)}
+  function vHex(n){return kH(n).toUpperCase()}
+  function vTerrain(){
+    var rows=11,cols=15,pts=[],i,j,s,b='',ph=[vR(0,6),vR(0,6),vR(0,6)];
+    for(i=0;i<rows;i++){pts[i]=[];var t=i/(rows-1),sc=.32+.68*t,yb=84+t*180;
+      for(j=0;j<cols;j++){var u=j-(cols-1)/2,hg=(Math.sin(j*.7+ph[0])+Math.sin(i*.9+ph[1])*Math.cos(j*.4+ph[2]))*.25+.5;pts[i].push([175+u*21*sc,yb-hg*40*sc])}}
+    for(i=0;i<rows;i++){s='';for(j=0;j<cols;j++)s+=(j?'L':'M')+vN(pts[i][j][0])+' '+vN(pts[i][j][1]);b+=vP(s,.8+i*.26,.7)}
+    for(j=0;j<cols;j++){s='';for(i=0;i<rows;i++)s+=(i?'L':'M')+vN(pts[i][j][0])+' '+vN(pts[i][j][1]);b+=vP(s,1+j*.1,1.1)}
+    var cx=pts[7][10][0],cy=pts[7][10][1];
+    b+=vRect(Math.round(cx-10),Math.round(cy-10),20,20,4.3,.4,'hi')+vT(Math.round(cx)-30,Math.round(cy)-16,'CONTACT 0'+(1+kR(8)),4.8,13);
+    return {side:[['HEADING','N '+vF()+'  E '+vF()],['ALTITUDE',(900+kR(900))+' M'],['GRADE',(5+kR(30))+' DEG'],['CONTACTS','0'+(1+kR(6))]],body:b};
+  }
+  function vNetwork(){
+    var N=11,nd=[],i,b='',ed={},n=0,k;
+    for(i=0;i<N;i++)nd.push([42+(i%4)*86+vR(-12,12),78+Math.floor(i/4)*66+vR(-10,10)]);
+    function E(a,c){if(a===c)return;ed[a<c?a+'-'+c:c+'-'+a]=[a,c]}
+    for(i=0;i<N;i++){E(i,(i+1)%N);E(i,(i+4)%N);if(Math.random()<.4)E(i,(i+5)%N)}
+    for(k in ed){var e=ed[k];b+=vLine(nd[e[0]][0],nd[e[0]][1],nd[e[1]][0],nd[e[1]][1],.3+n*.07,.5);n++}
+    nd.forEach(function(p,j){b+=vRect(Math.round(p[0])-4,Math.round(p[1])-4,8,8,1.3+j*.08,.3)});
+    var path=[0,4,8,9,10],s='';path.forEach(function(q,j){s+=(j?'L':'M')+vN(nd[q][0])+' '+vN(nd[q][1])});
+    b+=vP(s,3,2.2,'hi')+vT(Math.round(nd[0][0])-12,Math.round(nd[0][1])-10,'ENTRY',3.2,13)+vT(Math.round(nd[10][0])-14,Math.round(nd[10][1])+20,'TARGET',5,13);
+    b+=vRect(96,244,160,26,5.6,.4,'hi')+vT(106,263,'ACCESS GRANTED',6,17);
+    return {side:[['HOPS','0'+path.length],['LATENCY',(12+kR(80))+' MS'],['ICE LEVEL','0'+(1+kR(8))],['TRACE','0x'+vHex(4)]],body:b};
+  }
+  function vRadar(){
+    var cx=175,cy=168,R=100,b='',i,a;
+    [1,.66,.33].forEach(function(f,k){b+=vP(vEll(cx,cy,R*f,R*f),.2+k*.35,.9)});
+    b+=vLine(cx-R-10,cy,cx+R+10,cy,.8,.6)+vLine(cx,cy-R-10,cx,cy+R+10,.9,.6);
+    for(a=0;a<360;a+=30){var r=a*Math.PI/180;b+=vLine(cx+Math.cos(r)*R,cy+Math.sin(r)*R,cx+Math.cos(r)*(R+7),cy+Math.sin(r)*(R+7),1.2+a/360,.2)}
+    b+='<g class="sweep"><path class="sw" d="M175 168L175 66"/><path class="sw f1" d="M175 168L175 66" transform="rotate(-10 175 168)"/><path class="sw f2" d="M175 168L175 66" transform="rotate(-20 175 168)"/></g>';
+    var nb=4+kR(3),h=0;
+    for(i=0;i<nb;i++){var ang=vR(0,6.28),rad=vR(24,R-8),x=cx+Math.cos(ang)*rad,y=cy+Math.sin(ang)*rad,hostile=i<nb-1||Math.random()<.5;
+      b+=vP('M'+vN(x-5)+' '+vN(y)+'L'+vN(x)+' '+vN(y-5)+'L'+vN(x+5)+' '+vN(y)+'L'+vN(x)+' '+vN(y+5)+'Z',2.4+i*.55,.3,hostile?'hi':'')+vT(Math.round(x)+8,Math.round(y)-6,hostile?'H'+(++h):'F1',2.9+i*.55,12)}
+    return {side:[['RANGE',(R*2)+' M'],['CONTACTS','0'+nb],['HOSTILE','0'+h],['SWEEP','3.0 SEC']],body:b};
+  }
+  function vPlan(){
+    var x0=22,y0=62,W=306,H=206,b='',walls=[],rooms=[];
+    function split(x,y,w,h,dp){
+      if(dp===0||w<84||h<66){rooms.push([x,y,w,h]);return}
+      if(w>h){var s=x+w*vR(.4,.6);walls.push(['v',s,y,h]);split(x,y,s-x,h,dp-1);split(s,y,x+w-s,h,dp-1)}
+      else{var s2=y+h*vR(.4,.6);walls.push(['h',s2,x,w]);split(x,y,w,s2-y,dp-1);split(x,s2,w,y+h-s2,dp-1)}
+    }
+    split(x0,y0,W,H,3);
+    b+=vRect(x0,y0,W,H,.2,1.3);
+    walls.forEach(function(w,j){var d=.7+j*.18;
+      if(w[0]==='v'){var g=w[2]+w[3]*vR(.25,.6);b+=vLine(w[1],w[2],w[1],g,d,.5)+vLine(w[1],g+22,w[1],w[2]+w[3],d+.1,.5)}
+      else{var g2=w[2]+w[3]*vR(.25,.6);b+=vLine(w[2],w[1],g2,w[1],d,.5)+vLine(g2+22,w[1],w[2]+w[3],w[1],d+.1,.5)}});
+    var cs=rooms.map(function(r){return [r[0]+r[2]/2,r[1]+r[3]/2]}).sort(function(a,c){return a[0]-c[0]}),s3='';
+    cs.forEach(function(c,j){s3+=(j?'L':'M')+vN(c[0])+' '+vN(c[1])});
+    b+=vP(s3,3.4,.1,'dash');
+    var gn=Math.max(0,Math.min(3,cs.length-2)),gi=shuffle(cs.slice(1,cs.length-1)).slice(0,gn);
+    gi.forEach(function(c,j){var d2=4+j*.4;b+=vLine(c[0]-5,c[1]-5,c[0]+5,c[1]+5,d2,.25,'hi')+vLine(c[0]-5,c[1]+5,c[0]+5,c[1]-5,d2,.25,'hi')+vT(Math.round(c[0])+8,Math.round(c[1])-6,'G'+(j+1),d2+.2,12)});
+    var ob=cs[cs.length-1];b+=vP(vEll(ob[0],ob[1],9,9),5.4,.4,'hi')+vT(Math.round(ob[0])-12,Math.round(ob[1])+22,'OBJ',5.8,13);
+    var ex=x0+W*.15;b+=vLine(ex,y0+H+16,ex,y0+H+2,5.2,.4,'hi')+vLine(ex-5,y0+H+8,ex,y0+H+2,5.5,.2,'hi')+vLine(ex+5,y0+H+8,ex,y0+H+2,5.5,.2,'hi')+vT(Math.round(ex)+10,y0+H+14,'ENTRY',5.6,12);
+    return {side:[['FLOOR','L'+(1+kR(9))],['ROOMS',''+rooms.length],['GUARDS','0'+gn],['EST TIME',(2+kR(9))+':'+kZ(kR(60),2)]],body:b};
+  }
+  function vOrbit(){
+    var cx=175,cy=168,R=92,b='';
+    b+=vP(vEll(cx,cy,R,R),.2,1.4);
+    [-60,-30,0,30,60].forEach(function(la,k){var r=R*Math.cos(la*Math.PI/180),y=cy-R*Math.sin(la*Math.PI/180);b+=vP(vEll(cx,y,r,r*.26),.6+k*.25,.9)});
+    [0,30,60,120,150].forEach(function(lo,k){b+=vP(vEll(cx,cy,Math.max(4,R*Math.abs(Math.cos(lo*Math.PI/180))),R),1.2+k*.22,1)});
+    b+=vLine(cx,cy-R,cx,cy+R,1.9,.8);
+    b+='<path class="p hi" pathLength="1" d="'+vEll(cx,cy,140,38)+'" transform="rotate(-24 175 168)" style="--d:3s;--t:2.2s"/>';
+    var th=vR(0,6.28),ox=140*Math.cos(th),oy=38*Math.sin(th),an=-24*Math.PI/180,sx=cx+ox*Math.cos(an)-oy*Math.sin(an),sy=cy+ox*Math.sin(an)+oy*Math.cos(an);
+    b+=vRect(Math.round(sx)-5,Math.round(sy)-5,10,10,5.4,.3,'hi')+vT(Math.round(sx)+9,Math.round(sy)-9,'SAT-'+(1+kR(9)),5.8,13);
+    return {side:[['ORBIT',(300+kR(500))+' KM'],['INCLINATION',(20+kR(60))+' DEG'],['PERIOD',(90+kR(60))+' MIN'],['NEXT PASS',kZ(kR(24),2)+':'+kZ(kR(60),2)]],body:b};
+  }
+  function vRoute(){
+    var b='',i,gx=function(c){return 24+c*36},gy=function(r){return 64+r*40};
+    for(i=0;i<9;i++)b+=vLine(gx(i),58,gx(i),282,.2+i*.12,.8);
+    for(i=0;i<6;i++)b+=vLine(18,gy(i),330,gy(i),.4+i*.12,.8);
+    var P=[[1,5],[1,3],[5,3],[5,1],[7,1]],A=[[1,5],[4,5],[4,2],[7,2],[7,1]];
+    function pth(L){var s='';L.forEach(function(p,j){s+=(j?'L':'M')+gx(p[0])+' '+gy(p[1])});return s}
+    b+=vP(pth(P),2.2,1.6,'hi');
+    var bx=gx(3),by=gy(3);
+    b+=vLine(bx-8,by-8,bx+8,by+8,4,.25,'hi')+vLine(bx-8,by+8,bx+8,by-8,4,.25,'hi')+vT(bx-34,by-14,'NCPD BLOCK',4.3,12);
+    b+=vP(pth(A),4.8,1.6,'dash');
+    b+=vT(gx(1)-14,gy(5)+18,'START',3,12)+vT(gx(7)-8,gy(1)-10,'EXIT',3.2,12);
+    b+=vRect(206,238,118,24,6.6,.3,'hi')+vT(212,256,'ALT ETA +'+(8+kR(20)),6.9,14);
+    return {side:[['ROUTE','R-'+(10+kR(80))],['BLOCKS','01'],['DETOUR','+'+(8+kR(20))+' MIN'],['RISK','LEVEL '+(1+kR(5))]],body:b};
+  }
+  function vSignal(){
+    var b='',i,base=262,s='';
+    b+=vP('M18 '+(base+2)+'H330',.2,.8);
+    for(i=0;i<44;i++){var x=22+i*7,pk=(i>6&&i<12)||(i>22&&i<26)||(i>34&&i<38),h=pk?vR(60,120):vR(8,46);b+=vLine(x,base,x,base-h,.4+i*.07,.2)}
+    for(i=0;i<=78;i++){var xx=20+i*4,yy=126+Math.sin(i*.45)*18*Math.sin(i*.09+1)+Math.sin(i*1.3)*7*(i>30&&i<55?1.8:1);s+=(i?'L':'M')+vN(xx)+' '+vN(yy)}
+    b+=vP(s,.5,2.4,'hi');
+    b+=vT(24,70,'DECRYPTING',1,15)+vRect(22,76,196,14,1.2,.3)+'<rect class="fb" x="24" y="78" height="10" width="0"/>';
+    b+=vRect(206,184,118,26,7.4,.3,'hi')+vT(212,203,'KEY 0x'+vHex(4),7.7,16);
+    return {side:[['FREQ',(100+kR(800))+'.'+kR(9)+' MHZ'],['BAND','0'+(1+kR(8))],['SIGNAL',(40+kR(55))+' DB'],['PACKETS',''+(200+kR(8000))]],body:b};
+  }
+  function vProfile(){
+    var b='',i,j,gx=function(i){return 38+i*43},gy=function(t){return 12+t*25};
+    for(i=0;i<=10;i++)b+=vLine(gx(i),12,gx(i),262,.2+i*.07,.6,i===0?'hi':'dash');
+    for(j=0;j<=10;j++)b+=vLine(38,gy(j),468,gy(j),.3+j*.07,.6,j===10?'hi':'dash');
+    for(i=0;i<=9;i++)b+=vT(gx(i)-3,277,''+i,1.2+i*.05,11);
+    for(j=0;j<=10;j++)b+=vT(22,gy(j)+4,''+(5-j),1+j*.05,11);
+    'CENTER LINE'.split('').forEach(function(c,k){if(c!==' ')b+=vT(8,44+k*17,c,1+k*.08,13)});
+    b+=vT(190,294,'R   A   D   I   U   S',1.4,13);
+    b+='<rect x="288" y="8" width="184" height="98" fill="#000"/>'+vLine(288,106,468,106,2,.5)+vLine(288,8,288,106,2.1,.4);
+    ['SELECT PROFILE POINTS ON','GRID. PRESS ANY KEY TO LOCK','EACH POINT. FOR LAST POINT','PRESS THE L KEY.','','NOTE: LEFT EDGE IS CENTER LINE'].forEach(function(s,k){if(s)b+=vT(294,24+k*14,s,1.6+k*.5,12)});
+    var np=6,pts=[],r=[0.3,1.7,3.2,4.9,6.6,8.4],yv=vR(-1,2);
+    for(i=0;i<np;i++){yv=Math.max(-4.2,Math.min(3.6,yv+vR(-1.8,1.4)));pts.push([gx(r[i]),gy(5-yv)])}
+    for(i=0;i<np;i++){b+=vRect(Math.round(pts[i][0])-3,Math.round(pts[i][1])-3,6,6,2.4+i*.9,.2,'hi');if(i)b+=vLine(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1],2.6+i*.9,.5,'hi')}
+    var vals=pts.map(function(p){return vN(p[0])+','+vN(p[1])}).join(';');
+    b+='<g class="cursor" transform="translate('+vN(pts[0][0])+','+vN(pts[0][1])+')"><path d="M0 -300V600"/><path d="M-480 0H960"/><animateTransform attributeName="transform" type="translate" calcMode="discrete" values="'+vals+'" dur="'+(np*.9)+'s" begin="2.2s" fill="freeze"/></g>';
+    return {noFrame:true,body:b,hold:10000};
+  }
+  function vReadout(){
+    var b='',i,L=[],t=function(s){return s.replace(/E/g,function(){return Math.random()<.3?'3':'E'})},dots='.....................';
+    L.push('RESET_____','PWR ON            '+(50+kR(9))+'.'+kZ(kR(999),3),'PWR RESTART SHLD ENTR KEY','ENTR KEY CMPLT','RPHSE AND SBMT',dots,'OPRTG FRQ '+(450+kR(9))+'.'+kZ(kR(999),3)+' '+(450+kR(9))+'.'+kZ(kR(999),3),'SNDNG INF TO ST '+(10+kR(89))+'AKL','SNT AND RCVD ATTMPG TO SRMBL','INFRMD '+(100+kR(9))+'.000 ATTCH','RT TO DZAS, DZAM, DZAR',dots,'RT CMPLT '+(1000+kR(999))+' UTC','NEW NEB NE3 - REST AND STRT');
+    ['PWR CNTRL','PWR LVL','RSRC LVL','AUA LVL','SERI DVT','ARI DVTN','RESET LVL','STL DVTN','OMN PST','SBJ PST'].forEach(function(k){L.push(k+'  '+(20+kR(190))+'.'+kZ(kR(9999),4))});
+    L.push('FRT FRY FRU...........','LVL RSET     AUTO SET','PROCEED...............');
+    L.forEach(function(s,k){b+=vT(10,16+k*10.6,t(s),.2+k*.17,11)});
+    [8,11,14,17].forEach(function(rx,k){b+=vP(vEll(225,150,rx,128),.6+k*.4,1.3)});
+    b+=vP(vEll(225,138,48,7),2.6,.9,'hi')+vP(vEll(225,152,30,5),2.9,.9,'hi')+vP(vEll(225,164,22,4),3.2,.9,'hi');
+    var gx0=290,gx1=462,gy0=252,gy1=40,k;
+    for(k=0;k<=5;k++){var xx=gx0+k*(gx1-gx0)/5;b+=vLine(xx,gy1,xx,gy0,3+k*.1,.7)}
+    for(k=0;k<=4;k++){var yy=gy0-k*(gy0-gy1)/4;b+=vLine(gx0,yy,gx1,yy,3.2+k*.1,.7)}
+    b+=vLine(gx0,gy0,gx1-14,gy0-vR(80,110),4.4,1.4,'hi');
+    var sg=function(x){return 1/(1+Math.exp(-x))},s2='';
+    for(i=0;i<=36;i++){var tt=i/36;s2+=(i?'L':'M')+vN(gx0+tt*160)+' '+vN(gy0-(88*sg((tt-.38)*9)+84*sg((tt-.82)*14)))}
+    b+=vP(s2,5,1.6,'hi');
+    var st=[[gx0,gy0],[gx0+40,gy0-vR(60,80)],[gx0+78,gy0-vR(62,82)],[gx0+92,gy0-vR(110,130)],[gx0+128,gy0-vR(112,132)],[gx0+140,gy0-vR(150,175)],[gx0+160,gy0-vR(180,200)]],s3='';
+    st.forEach(function(p,j){s3+=(j?'L':'M')+vN(p[0])+' '+vN(p[1])});
+    b+=vP(s3,5.8,1.5,'hi')+vT(gx0+50,gy0+14,'MM:55-10 A '+(1+kR(9)),6.5,10);
+    return {noFrame:true,body:b,hold:9500};
+  }
+  function vecBuild(type){
+    var m=({terrain:vTerrain,network:vNetwork,radar:vRadar,plan:vPlan,orbit:vOrbit,route:vRoute,signal:vSignal,profile:vProfile,readout:vReadout})[type](),
+        s='<svg viewBox="0 0 480 300" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">';
+    if(!m.noFrame){
+      s+=vT(10,32,VEC_TITLE[type],.1,24);
+      s+=vRect(300,8,172,24,.2,.5)+vT(306,26,'SYSTEM:'+kZ(kR(99),2)+':'+(70+kR(30))+'.'+kZ(kR(99),2),.7,15);
+      s+=vRect(6,44,338,248,.2,1)+vRect(9,47,332,242,.4,1);
+      [[30,72],[320,72],[30,264],[320,264]].forEach(function(p,i){s+=vCross(p[0],p[1],.9+i*.1)});
+      m.side.forEach(function(it,i){var y=56+i*58;s+=vT(352,y,it[0],1+i*.2,14)+vRect(352,y+5,120,22,1.1+i*.2,.4)+vT(358,y+22,it[1],1.4+i*.2,15)});
+    }
+    return {svg:s+m.body+'</svg>',hold:m.hold||7000};
+  }
+  function showVec(type,quiet){
+    type=type||VEC_NAMES[kR(VEC_NAMES.length)];
+    var intro=VEC_INTRO[type];
+    if(!quiet&&intro){var l=intro[kR(intro.length)].split('|');crewSay(l[0],l.slice(1).join('|'))}
+    enqueue({run:function(done){
+      var d=document.createElement('div');d.className='vec'+(still?' static':'');var vb=vecBuild(type);d.innerHTML=vb.svg;
+      d.style.width=Math.max(220,Math.min(logEl.clientWidth||600,(logEl.clientHeight||400)*1.55))+'px';
+      logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;
+      [].slice.call(d.querySelectorAll('text.t')).forEach(function(t){
+        var full=t.getAttribute('data-t'),dl=+t.getAttribute('data-d');
+        if(still){t.textContent=full;return}
+        setTimeout(function(){var n=0,iv=setInterval(function(){t.textContent=full.slice(0,++n);if(n>=full.length)clearInterval(iv)},30)},dl);
+      });
+      while(logEl.children.length>80)logEl.removeChild(logEl.firstChild);
+      setTimeout(done,still?0:vb.hold);
+    }});
+  }
+  var vecT=null;
+  function vecSchedule(first){vecT=setTimeout(function(){vecT=null;if(!running||!visualsOn)return;showVec(null,!crewOn);vecSchedule(false)},first?rw('vec',SP.vec)*.45:rw('vec',SP.vec))}
+  function vecSync(){clearTimeout(vecT);vecT=null;if(running&&visualsOn)vecSchedule(true)}
+  var crewBag={w:[],r:[]},crewCur=null,crewIdx=0,crewGap=0;
+  function crewPick(){
+    var pool=mode==='focus'?'w':'r';
+    if(!crewBag[pool].length)crewBag[pool]=shuffle(CONV.filter(function(c){return c[0]==='a'||c[0]===pool}));
+    return crewBag[pool].pop();
+  }
+  var WIN={log:{slow:[16,32],medium:[8,16],fast:[4,8]},cmds:{slow:[30,70],medium:[10,24],fast:[6,13]},msg:{slow:[9,20],medium:[5,11],fast:[3,7]},gap:{slow:[45,110],medium:[20,50],fast:[10,25]},vec:{slow:[420,840],medium:[180,420],fast:[100,220]}};
+  function rw(k,sp){var w=WIN[k][sp]||WIN[k].medium;return (w[0]+Math.random()*(w[1]-w[0]))*1000}
+  var crewT=null,nextLog=0;
+  function crewStep(){
+    if(!crewCur){crewCur=crewPick();crewIdx=1}
+    var m=crewCur[crewIdx++].split('|');crewSay(m[0],m.slice(1).join('|'));
+    if(crewIdx>=crewCur.length)crewCur=null;
+  }
+  function crewLoop(first){crewT=setTimeout(function(){crewT=null;if(!running||!crewOn)return;crewStep();crewLoop(false)},first?rw('gap',SP.crew)*.4:rw(crewCur?'msg':'gap',SP.crew))}
+  function crewSync(){clearTimeout(crewT);crewT=null;if(running&&crewOn)crewLoop(true)}
+  function lines(){var el=total-left;if(el>=nextLog){emit(Math.round(el));nextLog=el+rw('log',SP.log)/1000}}
+  /* ---- random shell chatter between timer lines (every 10-20 s while running) ---- */
+  var kR=function(n){return Math.floor(Math.random()*n)},kP=function(a){return a[kR(a.length)]},
+      kH=function(n){var s='';for(var i=0;i<n;i++)s+='0123456789abcdef'.charAt(kR(16));return s},
+      kIP=function(){return '10.'+kR(256)+'.'+kR(256)+'.'+(1+kR(254))},kZ=function(n,w){return String(n).padStart(w,'0')},
+      kBar=function(p){var f=Math.round(p/10);return '['+'\u2588'.repeat(f)+'\u2591'.repeat(10-f)+'] '+p+'%'},
+      kF=['cortex.sys','retina.bin','synapse.db','dream.log','flux.conf','nexus.sock','mem.dump','link.cfg','vault.key','relay.pid','ghost.tmp','scan.out'],
+      kSvc=['fluxd','nexusd','relayd','syncd','cortexd','ghostd'],fkT=null,bag=[],PROMPT='operator@esper:~$ ';
+  function kRows(n,f){var a=[];for(var i=0;i<n;i++)a.push(f(i));return a}
+  var G=[
+    function(){return ['nmap -sS '+kIP()+' --top-ports 20','Starting scan at '+stamp(),'+22/tcp    open   ssh','+'+kP([80,443,8443,9000])+'/tcp   open   '+kP(['http','https','https-alt','unknown']),'3306/tcp  filtered mysql','Done: 1 host up, scanned in '+kR(40)+'.'+kR(9)+'s']},
+    function(){return ['tail -n 4 /var/log/esper.log'].concat(kRows(4,function(){return '['+stamp()+'] '+kP(kSvc)+': '+kP(['heartbeat ok','buffer drained','checksum verified','lease renewed','route stable','handshake complete','cache warm'])+' ('+(1+kR(900))+'ms)'}))},
+    function(){return ['ls -la /dev/neural/','total '+(8+kR(90))].concat(kRows(4,function(){return '-'+kP(['rw-r-----','rwxr-x---','rw-------','r--r--r--'])+'  1 root esper '+String(1+kR(980)).padStart(5)+'K '+kZ(kR(24),2)+':'+kZ(kR(60),2)+' '+kP(kF)}))},
+    function(){var r=['ping -c 3 relay-'+(1+kR(9))+'.orbital'];for(var i=1;i<=3;i++)r.push('64 bytes from '+kIP()+': icmp_seq='+i+' ttl='+(48+kR(16))+' time='+(8+kR(40))+'.'+kR(10)+' ms');return r.concat(['3 packets transmitted, 3 received, 0% loss'])},
+    function(){var o=kZ(kR(65535).toString(16),8);return ['hexdump -C /dev/mem | head -n 3'].concat(kRows(3,function(i){var b=[],a='';for(var j=0;j<16;j++){var v=32+kR(95);b.push(kH(2));a+=String.fromCharCode(v)}return kZ((parseInt(o,16)+i*16).toString(16),8)+'  '+b.slice(0,8).join(' ')+'  '+b.slice(8).join(' ')+'  |'+a+'|'}))},
+    function(){return ['ps aux --sort=-%cpu | head -n 4','USER     PID %CPU %MEM COMMAND'].concat(kRows(3,function(){return 'root'.padEnd(8)+String(100+kR(9000)).padStart(5)+' '+(kR(90)+'.'+kR(10)).padStart(4)+' '+(kR(30)+'.'+kR(10)).padStart(4)+' /usr/sbin/'+kP(kSvc)}))},
+    function(){return ['df -h | grep -v tmpfs','Filesystem      Size  Used Avail Use% Mounted on','/dev/nvme0n1p2  512G  '+(100+kR(300))+'G  '+(20+kR(90))+'G  '+(40+kR(50))+'% /','/dev/sda1      '+kP(['2.0T','4.0T','8.0T'])+'  '+(1+kR(3))+'.'+kR(9)+'T  '+(1+kR(3))+'.'+kR(9)+'T  '+(30+kR(60))+'% /vault']},
+    function(){return ['traceroute -m 5 uplink.orbital.net'].concat(kRows(5,function(i){return String(i+1).padStart(2)+'  '+kIP()+'  '+(1+i*7+kR(9))+'.'+kR(10)+' ms'}))},
+    function(){return ['dmesg | tail -n 4'].concat(kRows(4,function(){return '[ '+(1000+kR(9000))+'.'+kZ(kR(999999),6)+'] '+kP(['thermal: zone'+kR(4)+' stable at '+(38+kR(9))+'C','nvme: queue depth '+(8+kR(56)),'usb 1-'+(1+kR(4))+': new high-speed device','eth0: link up, 10000Mbps','cortex: sync window closed','audio: buffer underrun avoided'])}))},
+    function(){var sv=kP(kSvc);return ['systemctl status '+sv+'.service','+\u25cf '+sv+'.service - '+kP(['Flux regulation daemon','Neural relay','Signal synchroniser','Cortex bridge']),'   Loaded: loaded (/etc/systemd/system; enabled)','+   Active: active (running) since '+stamp(),' Main PID: '+(1000+kR(9000))+'   Memory: '+(4+kR(90))+'.'+kR(10)+'M']},
+    function(){return ['curl -s relay.orbital/telemetry | jq .','{','  "uplink": "'+kP(['nominal','locked','stable'])+'",','  "latency_ms": '+(10+kR(60))+',','  "sectors": '+(64+kR(192))+',','  "token": "'+kH(12)+'"','}']},
+    function(){var s=kP(['7G','4A','12C','9F']);return ['./calibrate --sector '+s+' --passes 3'].concat([1,2,3].map(function(p){return 'pass '+p+'/3  '+kBar(p===3?100:p*30+kR(10))})).concat(['+sector '+s+' calibrated'])},
+    function(){return ['rsync -av /data/cache/ vault:/backup/'].concat(kRows(3,function(){return kP(['cache','index','shards','blobs'])+'/'+kH(6)+'.dat'})).concat(['sent '+(1+kR(9))+'.'+kR(99)+'M bytes  received '+(40+kR(200))+' bytes  '+(1+kR(4))+'.'+kR(9)+'M bytes/sec'])},
+    function(){return ['sensors | grep Core'].concat(kRows(3,function(i){return 'Core '+i+':        +'+(38+kR(14))+'.'+kR(10)+'\u00b0C  (high = +85.0\u00b0C)'}))},
+    function(){return ['netstat -an | grep ESTABLISHED'].concat(kRows(3,function(){return 'tcp  0  0 '+kIP()+':'+kP([443,8443,22,9000])+'  '+kIP()+':'+(30000+kR(30000))+'  ESTABLISHED'}))},
+    function(){return ['gpg --verify manifest.sig','gpg: Signature made '+stamp(),'gpg:                using RSA key '+kH(16).toUpperCase(),'+gpg: Good signature from "esper-ops"']},
+    function(){return ['uname -a','ESPER 2.019-rt #'+(1+kR(40))+' SMP PREEMPT x86_64 GNU/Linux']},
+    function(){return ['openssl rand -hex 24',kH(48)]},
+    function(){return ['id','uid=1000(operator) gid=100(esper) groups=100(esper),27(sudo),998(uplink)']},
+    function(){return ['git log --oneline -n 3'].concat(kRows(3,function(){return kH(7)+' '+kP(['fix flux regulator drift','tune relay backoff','patch cortex handshake','rotate vault keys','trim dream log','bump uplink timeout'])}))},
+    function(){return ['top -bn1 | head -n 4','top - '+stamp()+' up '+(1+kR(40))+' days, load average: '+kR(3)+'.'+kZ(kR(99),2)+', '+kR(3)+'.'+kZ(kR(99),2),'Tasks: '+(120+kR(200))+' total, '+(1+kR(4))+' running','%Cpu(s): '+(1+kR(40))+'.'+kR(10)+' us, '+kR(9)+'.'+kR(10)+' sy, '+(50+kR(49))+'.'+kR(10)+' id']},
+    function(){return ['cat /etc/motd',kP(['ESPER OS 2.019 -- authorized operators only','All sessions are logged. Stay on task.','Uplink nominal. Watch your cycle count.','Reminder: hydration is a system requirement.']),'Last login: '+stamp()+' from '+kIP()]},
+    function(){return ['strings /dev/dream | head -n 3'].concat(kRows(3,function(){return kP(['the corridor is longer than it looks','signal found beneath the static','not all rooms are on the map','somebody left the lights on','listen to the vents','frequency drift detected'])}))},
+    function(){return ['grep -rc "anomaly" /var/log | sort -rn | head -n 2','/var/log/'+kP(['cortex','flux','relay'])+'.log:'+(3+kR(40)),'/var/log/'+kP(['nexus','sync','ghost'])+'.log:'+kR(3)]}
+  ];
+  function shuffle(a){for(var i=a.length-1;i>0;i--){var j=kR(i+1),t=a[i];a[i]=a[j];a[j]=t}return a}
+  function fkRun(){
+    if(!bag.length)bag=shuffle(G.slice());
+    var r=bag.pop()();out(PROMPT+r[0],'cmd');
+    r.slice(1).forEach(function(l){var ok=l.charAt(0)==='+';out(ok?l.slice(1):l,ok?'ok':'')});
+  }
+  function fkSchedule(){fkT=setTimeout(function(){fkT=null;if(!running||!chatter)return;fkRun();fkSchedule()},rw('cmds',SP.cmd))}
+  function fakeSync(){clearTimeout(fkT);fkT=null;if(running&&chatter)fkSchedule();crewSync();vecSync()}
+  /* ---- phone/desktop niceties: keep the screen awake and alert when a phase ends in the background ---- */
+  var LN=(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()&&Capacitor.Plugins)?Capacitor.Plugins.LocalNotifications:null,wl=null;
+  function wakeOn(){try{if(navigator.wakeLock&&!wl)navigator.wakeLock.request('screen').then(function(l){wl=l;l.addEventListener('release',function(){wl=null})}).catch(function(){})}catch(e){}}
+  function wakeOff(){try{if(wl){wl.release();wl=null}}catch(e){}}
+  document.addEventListener('visibilitychange',function(){if(running&&!document.hidden)wakeOn()});
+  function lnSchedule(){
+    if(!LN)return;
+    var nm=mode==='focus'?((done+1)%4===0?'long':'short'):'focus';
+    LN.checkPermissions().then(function(p){return p.display==='granted'?p:LN.requestPermissions()}).then(function(p){
+      if(!p||p.display!=='granted'||!running)return;
+      return LN.schedule({notifications:[{id:1,title:'ESPER // '+META[mode].tag.toLowerCase()+' complete',body:'next: '+META[nm].tag.toLowerCase()+' '+fmt(dur[nm]*60),schedule:{at:new Date(end+1200),allowWhileIdle:true}}]})
+    }).catch(function(){});
+  }
+  function lnCancel(){if(LN)LN.cancel({notifications:[{id:1}]}).catch(function(){})}
+  function start(){if(running)return;var fresh=left>=total;running=true;ambSync();fakeSync();end=Date.now()+left*1000;wakeOn();lnSchedule();nextLog=(total-left)+rw('log',SP.log)/1000*.6;
+    sys('timer start  '+META[mode].tag+' '+fmt(total)+'  log: '+SP.log,'ok');crewReact(startEvent(fresh));
+    tick=setInterval(function(){left=(end-Date.now())/1000;if(left<=0){left=0;lines();finish();return}lines();render()},100);render()}
+  function stop(){running=false;clearInterval(tick);ambSync();fakeSync();wakeOff();lnCancel()}
+  function pause(){if(!running){sys('timer is not running','err');return}stop();sys('timer paused  t-'+fmt(Math.ceil(left)));render();if(Math.random()<.5)crewReact('pause')}
+  function next(){if(mode==='focus'){done++;setMode(done%4===0?'long':'short')}else setMode('focus')}
+  function notify(was){try{if(document.hasFocus()||!window.Notification)return;new Notification('ESPER // '+META[was].tag.toLowerCase()+' complete',{body:'next: '+META[mode].tag.toLowerCase()+' '+fmt(total),silent:true})}catch(e){}}
+  function finish(){var was=mode;stop();chime();sys('phase complete','ok');next();notify(was);crewReact(was==='focus'?(mode==='long'?'long':'focusDone'):'breakDone')}
+  /* ---------- audio: ship ambience (from your file) + end-of-phase chime ---------- */
+  var gChime,sfx={chime:[]};
+  function loadSfx(){
+    if(!window.SFX||!ac)return;
+    (SFX.chime||[]).forEach(function(b64){
+      try{var bin=atob(b64),u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+        ac.decodeAudioData(u.buffer,function(buf){sfx.chime.push(buf)},function(){})}catch(e){}});
+  }
+  function setBus(k,v){if(k==='amb'){ambLvl=muted?0:v;ambSet();return}if(!ac||k!=='chime')return;gChime.gain.setTargetAtTime(muted?0:v,ac.currentTime,.02)}
+  function applyVol(){VK.forEach(function(k){setBus(k,vol[k])})}
+  function initAudio(){
+    try{
+      if(!ac){
+        ac=new (window.AudioContext||window.webkitAudioContext)();
+        gChime=ac.createGain();gChime.gain.value=0;gChime.connect(ac.destination);
+        loadSfx();applyVol();
+      }
+      if(ac.state==='suspended')ac.resume();
+      ambSync();
+    }catch(e){}
+  }
+  ['pointerdown','keydown'].forEach(function(ev){document.addEventListener(ev,initAudio,true)});
+  /* ---- ship ambience: two <audio> elements, crossfaded for a seamless loop ---- */
+  var ambA=[new Audio('assets/ambient.ogg'),new Audio('assets/ambient.ogg')],ambEnv=[0,0],ambDir=[0,0],ambCur=0,ambLvl=0,ambFade=0,ambTarget=0,ambTimer=null,ambPrev=false,ambPT=null,AXF=8;
+  ambA.forEach(function(a){a.preload='auto'});
+  function ambVolumes(){ambA.forEach(function(a,i){a.volume=Math.max(0,Math.min(1,ambLvl*ambFade*ambEnv[i]))})}
+  function ambPlay(i){try{var p=ambA[i].play();if(p&&p.catch)p.catch(function(){})}catch(e){}}
+  function ambTick(){
+    var dt=.1,cur=ambA[ambCur],oth=ambA[1-ambCur],i;
+    ambFade+=(ambTarget-ambFade)*Math.min(1,dt/1.1);
+    for(i=0;i<2;i++){
+      ambEnv[i]=Math.max(0,Math.min(1,ambEnv[i]+ambDir[i]*dt/AXF));
+      if(ambDir[i]<0&&ambEnv[i]===0){ambA[i].pause();ambDir[i]=0}
+      if(ambDir[i]>0&&ambEnv[i]===1)ambDir[i]=0;
+    }
+    if(ambTarget>0&&!cur.paused&&isFinite(cur.duration)&&cur.duration-cur.currentTime<=AXF&&ambDir[1-ambCur]===0&&oth.paused){
+      oth.currentTime=0;ambEnv[1-ambCur]=0;ambDir[1-ambCur]=1;ambDir[ambCur]=-1;ambPlay(1-ambCur);ambCur=1-ambCur;
+    }
+    ambVolumes();
+    if(ambTarget===0&&ambFade<.01){ambA.forEach(function(a){a.pause()});ambEnv=[0,0];ambDir=[0,0];clearInterval(ambTimer);ambTimer=null}
+  }
+  function ambStart(){
+    ambTarget=1;
+    if(ambA[0].paused&&ambA[1].paused){
+      var cur=ambA[ambCur];ambEnv=[0,0];ambEnv[ambCur]=1;ambDir=[0,0];
+      var seek=function(){if(isFinite(cur.duration)&&cur.duration>40)cur.currentTime=Math.random()*(cur.duration-AXF*3)};
+      if(cur.readyState>0)seek();else cur.addEventListener('loadedmetadata',seek,{once:true});
+      ambPlay(ambCur);
+    }
+    if(!ambTimer)ambTimer=setInterval(ambTick,100);
+  }
+  function ambStop(){ambTarget=0;if(!ambTimer)ambTimer=setInterval(ambTick,100)}
+  function ambSync(){var want=(ambMode==='always'||running||ambPrev)&&ambLvl>0;want?ambStart():ambStop()}
+  function ambSet(){ambVolumes();ambSync()}
+  function chime(){
+    initAudio();if(!ac)return;
+    if(sfx.chime.length){var cs=ac.createBufferSource();cs.buffer=sfx.chime[0];cs.connect(gChime);cs.start();return}
+    [196,196,147].forEach(function(f,i){var o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime+i*.4;o.type='triangle';o.frequency.value=f;
+      g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.35,t+.03);g.gain.exponentialRampToValueAtTime(.0001,t+1.2);
+      o.connect(g);g.connect(gChime);o.start(t);o.stop(t+1.25)});
+  }
+  function preview(k){
+    initAudio();if(k==='amb'){ambPrev=true;ambSync();clearTimeout(ambPT);ambPT=setTimeout(function(){ambPrev=false;ambSync()},3500);return}
+    chime();
+  }
+  function toggle(){initAudio();
+    running?pause():start()}
+
+  /* durations */
+  function save(){try{localStorage.setItem('esper.dur',JSON.stringify({focus:dur.focus,short:dur.short,long:dur.long,speeds:SP,colors:COL,vol:vol,muted:muted,ambMode:ambMode,chatter:chatter,crew:crewOn,visuals:visualsOn,boot:bootOn,opacity:opac}))}catch(e){}}
+  function setSp(k,v){SP[k]=v;chatter=SP.cmd!=='off';crewOn=SP.crew!=='off';visualsOn=SP.vec!=='off';save();fakeSync()}
+  function setDur(m,n){
+    dur[m]=n;save();
+    if(m===mode&&!running&&left===total){total=left=n*60;sys(m+'_min='+n+'  applied','ok')}
+    else sys(m+'_min='+n+'  (applies next '+m+' phase)','ok');
+    render();
+  }
+  function parseMin(v){var n=Number(v);return (v!==''&&isFinite(n)&&n>=1&&n<=180&&Math.floor(n)===n)?n:null}
+  function volTxt(k){$('vo-'+k).textContent=Math.round($('v-'+k).value)+'%'}
+  VK.forEach(function(k){var el=$('v-'+k);
+    el.addEventListener('input',function(){volTxt(k);setBus(k,el.value/100)});
+    el.addEventListener('change',function(){preview(k)})});
+  var pendAmb='running';function segAmb(v){pendAmb=v;[].slice.call(document.querySelectorAll('#o-amb button')).forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.v===v))})}
+  [].slice.call(document.querySelectorAll('#o-amb button')).forEach(function(b){b.onclick=function(){segAmb(b.dataset.v)}});
+  function bindSeg(id,pick){var bs=[].slice.call(document.querySelectorAll('#'+id+' button'));function mark(v){bs.forEach(function(x){x.setAttribute('aria-pressed',String(x.dataset.v===v))})}bs.forEach(function(b){b.onclick=function(){pick(b.dataset.v);mark(b.dataset.v)}});return mark}
+  var pendBoot='on',markBoot=bindSeg('o-boot',function(v){pendBoot=v}),pendSp={log:'medium',cmd:'medium',crew:'medium',vec:'medium'},markSp={};
+  [['log','o-log'],['cmd','o-chat'],['crew','o-crew'],['vec','o-vis']].forEach(function(q){markSp[q[0]]=bindSeg(q[1],function(v){pendSp[q[0]]=v})});
+  function applyOpacity(p){try{if(window.esper&&esper.opacity)esper.opacity(p/100)}catch(e){}}
+  var opaEl=$('v-opa'),opaOK=!!(window.esper&&esper.opacity);if(opaEl&&!opaOK)opaEl.disabled=true;
+  if(opaEl)opaEl.addEventListener('input',function(){$('vo-opa').textContent=opaEl.value+'%';applyOpacity(+opaEl.value)});
+  function openCfg(){['focus','short','long'].forEach(function(k){$('o-'+k).value=dur[k];$('c-'+k).value=COL[k]});VK.forEach(function(k){$('v-'+k).value=Math.round(vol[k]*100);volTxt(k)});segAmb(ambMode);['log','cmd','crew','vec'].forEach(function(k){pendSp[k]=SP[k];markSp[k](SP[k])});pendBoot=bootOn?'on':'off';markBoot(pendBoot);if(opaEl){opaEl.value=opac;$('vo-opa').textContent=opaOK?opac+'%':'n/a'}$('msg').textContent='';cfg.classList.add('open');$('o-focus').focus();$('o-focus').select()}
+  function closeCfg(){cfg.classList.remove('open');applyColors();applyVol();applyOpacity(opac);if(document.activeElement)document.activeElement.blur()}
+  cfg.onsubmit=function(e){e.preventDefault();var v={};
+    for(var k of ['focus','short','long']){v[k]=parseMin($('o-'+k).value);if(v[k]===null){$('msg').textContent='error: '+k+'_min must be a whole number, 1-180';$('o-'+k).focus();return}}
+    ['focus','short','long'].forEach(function(k){if(v[k]!==dur[k])setDur(k,v[k])});['focus','short','long'].forEach(function(k){COL[k]=$('c-'+k).value});VK.forEach(function(k){vol[k]=$('v-'+k).value/100});if(pendAmb!==ambMode)ambMode=pendAmb;['log','cmd','crew','vec'].forEach(function(k){SP[k]=pendSp[k]});chatter=SP.cmd!=='off';crewOn=SP.crew!=='off';visualsOn=SP.vec!=='off';bootOn=pendBoot==='on';if(opaEl)opac=+opaEl.value;save();closeCfg();ambSync();fakeSync();sys('config saved','ok')};
+  $('cancel').onclick=closeCfg;
+  $('defs').onclick=function(){['focus','short','long'].forEach(function(k){$('o-'+k).value=DEF[k];$('c-'+k).value=DEFCOL[k];prev(k)});VK.forEach(function(k){$('v-'+k).value=Math.round(DEFVOL[k]*100);volTxt(k);setBus(k,DEFVOL[k])});segAmb('running');['log','cmd','crew','vec'].forEach(function(k){pendSp[k]='medium';markSp[k]('medium')});pendBoot='on';markBoot('on');if(opaEl){opaEl.value=100;$('vo-opa').textContent='100%';applyOpacity(100)}$('msg').textContent=''};
+  $('conf').onclick=function(){sys('opening /etc/esper.conf');openCfg()};
+
+  /* commands */
+  var HELP=['start | pause | reset | skip','focus | short | long      switch mode','set <mode> <min>         e.g. set focus 50','set log <slow|medium|fast>  how often timer lines print','set color <mode> <#hex>   e.g. set color focus #00ff9c','set volume <chime|ambient> <0-100>','set ambient <running|always>  when the ambience plays','set chatter <off|slow|medium|fast>  random shell commands','set crew <off|slow|medium|fast>     crew chat','show [scan|trace|radar|plan|orbit|route|intercept|grid|telemetry]','set visuals <off|slow|medium|fast>  scope displays','set boot <on|off>           boot and shutdown sequence','set opacity <30-100>       window transparency (desktop)','mute | unmute','config                   edit all durations','status | clear | help'];
+  function run(line){
+    var p=line.trim().toLowerCase().split(/\s+/),c=p[0];if(!c)return;
+    out('operator@esper:~$ '+line.trim(),'cmd',true);hist.push(line);hi=hist.length;
+    if(c==='start'||c==='go'||c==='resume'){running?sys('timer already running','err'):start()}
+    else if(c==='pause'||c==='stop'||c==='hold')pause();
+    else if(c==='reset'){setMode(mode)}
+    else if(c==='skip'||c==='next'){sys('phase skipped');next();crewReact('skip')}
+    else if(META[c])setMode(c);
+    else if(c==='mode'&&META[p[1]])setMode(p[1]);
+    else if(c==='set'){var m=p[1],n=parseMin(p[2]);
+      if(m==='volume'){var vm={chime:'chime',ambient:'amb'}[p[2]],vn=Number(p[3]);
+        if(vm&&p[3]!==undefined&&isFinite(vn)&&vn>=0&&vn<=100){vol[vm]=vn/100;save();applyVol();initAudio();sys('vol_'+p[2]+'='+Math.round(vn)+'%','ok')}else out('usage: set volume <chime|ambient> <0-100>','err')}
+      else if(m==='color'){var cm=p[2],hx=(p[3]||'').replace('#','');if(META[cm]&&/^[0-9a-f]{6}$/.test(hx)){COL[cm]='#'+hx;save();applyColors();sys('color_'+cm+'=#'+hx,'ok')}else out('usage: set color <mode> <#rrggbb>','err')}
+      else if(m==='ambient'){if(p[2]==='running'||p[2]==='always'){ambMode=p[2];save();ambSync();sys('ambient_play='+p[2],'ok')}else out('usage: set ambient <running|always>','err')}
+      else if(m==='opacity'){var op=parseInt(p[2],10);if(!opaOK){out('opacity needs the desktop app (replace main.js and preload.js too)','err')}else if(op>=30&&op<=100){opac=op;save();applyOpacity(op);sys('window_opacity='+op+'%','ok')}else out('usage: set opacity <30-100>','err')}
+      else if(m==='log'||m==='chatter'||m==='crew'||m==='visuals'){var key={log:'log',chatter:'cmd',crew:'crew',visuals:'vec'}[m],val=p[2]==='on'?'medium':p[2],opts=key==='log'?['slow','medium','fast']:['off','slow','medium','fast'];if(opts.indexOf(val)>-1){setSp(key,val);sys(m+'='+val,'ok')}else out('usage: set '+m+' <'+opts.join('|')+'>','err')}
+      else if(m==='boot'){if(p[2]==='on'||p[2]==='off'){bootOn=p[2]==='on';save();sys('boot='+p[2],'ok')}else out('usage: set boot <on|off>','err')}
+
+
+      else if(m==='interval'){var mp={5:'fast',10:'medium',20:'slow',30:'slow'}[n];if(mp){setSp('log',mp);sys('log='+mp+' (intervals are now slow/medium/fast)','ok')}else out('usage: set log <slow|medium|fast>','err')}
+      else if(!META[m]||n===null)out('usage: set <focus|short|long> <1-180>  |  set log <slow|medium|fast>','err');else setDur(m,n)}
+    else if(c==='show'||VEC_ALIAS[c]){
+      var vt=VEC_ALIAS[c]||VEC_ALIAS[p[1]]||(VEC_NAMES.indexOf(p[1])>-1?p[1]:null);
+      if(c==='show'&&p[1]==='list')out('displays: '+Object.keys(VEC_ALIAS).join(', '));
+      else if(c==='show'&&p[1]&&!vt)out('usage: show [scan|trace|radar|plan|orbit|route|intercept|grid|telemetry]','err');
+      else showVec(vt,false);
+    }
+    else if(c==='mute'||c==='unmute'){muted=c==='mute';save();initAudio();applyVol();sys(muted?'audio muted':'audio on','ok')}
+    else if(c==='config'||c==='options'||c==='conf')openCfg();
+    else if(c==='status'){out('mode='+META[mode].tag+'  remaining='+fmt(Math.ceil(left))+'  '+(running?'running':'idle'));
+      out('focus='+dur.focus+'m  short='+dur.short+'m  long='+dur.long+'m  log='+SP.log+' cmds='+SP.cmd+' crew='+SP.crew+' scopes='+SP.vec+'  sessions='+done)}
+    else if(c==='clear'){clearLog()}
+    else if(c==='help'||c==='?'){HELP.forEach(function(h){out(h)})}
+    else if(!chatReply(line.trim()))out('esper: command not found: '+c+'  (try help)','err');
+  }
+  cmd.addEventListener('keydown',function(e){
+    if(e.key==='Enter'){var v=cmd.value;cmd.value='';run(v)}
+    else if(e.key==='ArrowUp'&&hist.length){e.preventDefault();hi=Math.max(0,hi-1);cmd.value=hist[hi]||''}
+    else if(e.key==='ArrowDown'&&hist.length){e.preventDefault();hi=Math.min(hist.length,hi+1);cmd.value=hist[hi]||''}
+  });
+  logEl.onclick=function(){if(window.matchMedia('(pointer:fine)').matches)cmd.focus()};
+
+  goBtn.onclick=toggle;$('reset').onclick=function(){setMode(mode)};$('skip').onclick=function(){sys('phase skipped');next();crewReact('skip')};
+  modeBtns.forEach(function(b){b.onclick=function(){setMode(b.dataset.m)}});
+  document.addEventListener('keydown',function(e){
+    var t=e.target.tagName;
+    if(e.key==='Escape'&&cfg.classList.contains('open')){closeCfg();return}
+    if(t==='INPUT'||t==='BUTTON')return;
+    if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='/'){e.preventDefault();cmd.focus()}
+  });
+
+  function clk(){$('clk').textContent=stamp()}setInterval(clk,1000);clk();
+
+  /* desktop shell hooks */
+  if(window.esper){
+    document.body.classList.add('native');
+    $('w-min').onclick=function(){esper.win('min')};$('w-max').onclick=function(){esper.win('full')};$('w-x').onclick=function(){esper.win('close')};
+    $('w-pin').onclick=function(){esper.win('pin').then(function(on){$('w-pin').setAttribute('aria-pressed',String(!!on));sys(on?'window pinned on top':'window unpinned')})};
+    esper.onToggle(function(){toggle()});if(esper.onShutdown)esper.onShutdown(shutdown);applyOpacity(opac);
+  }
+
+  /* ---- boot / shutdown sequences ---- */
+  var BOOT=['ESPER SYSTEMS  BIOS v2.019','(C) 1984 ESPER SYSTEMS','','CPU: ESPER-8800 @ 4.77MHZ .......... OK','MEMORY TEST: 640K .................. OK','VIDEO: PHOSPHOR RGB ............... OK','MOUNTING /DEV/TIMER ............... OK','MOUNTING /DEV/AMBIENT ............. OK','LOADING CREW ROSTER ............... 7 OPERATORS','LINKING COMMS ..................... BASE ONLINE','@bar','','READY.'];
+  var SHUT=['SAVING STATE ................... OK','UNMOUNTING /DEV/AMBIENT ........ OK','SIGNING OFF CREW ............... OK','','POWER DOWN.'];
+  var seqRun=0,shuttingDown=false;
+  function seq(lines,done){
+    var el=$('boot-t'),box=$('boot'),id=++seqRun,i=0,fin=false;
+    el.textContent='';box.classList.add('on');
+    function end(){if(fin)return;fin=true;document.removeEventListener('keydown',end,true);box.removeEventListener('pointerdown',end);box.classList.remove('on');if(done)done()}
+    document.addEventListener('keydown',end,true);box.addEventListener('pointerdown',end);
+    function nextLine(){
+      if(fin||id!==seqRun)return;
+      if(i>=lines.length){setTimeout(end,350);return}
+      var ln=lines[i++],base=el.textContent,n=0,iv;
+      if(ln==='@bar'){
+        iv=setInterval(function(){if(fin){clearInterval(iv);return}n++;el.textContent=base+'['+'\u2588'.repeat(n)+'\u2591'.repeat(18-n)+'] '+Math.round(n/18*100)+'%\n';if(n>=18){clearInterval(iv);setTimeout(nextLine,120)}},34);
+        return;
+      }
+      iv=setInterval(function(){if(fin){clearInterval(iv);return}n++;el.textContent=base+ln.slice(0,n);if(n>=ln.length){clearInterval(iv);el.textContent=base+ln+'\n';setTimeout(nextLine,40+kR(110))}},11);
+    }
+    nextLine();
+  }
+  function shutdown(){
+    if(shuttingDown)return;shuttingDown=true;
+    var quit=function(){try{esper.quit()}catch(e){}};
+    if(!bootOn||still){quit();return}
+    seq(SHUT,function(){$('app').classList.add('off');setTimeout(quit,650)});
+  }
+  function replayScreen(){var sc=$('app');sc.style.animation='none';void sc.offsetWidth;sc.style.animation=''}
+
+  /* boot */
+  var BAN=["██████  ██████  ██████  ██████  ██████", "██      ██      ██  ██  ██      ██  ██", "█████   ██████  ██████  █████   ██████", "██          ██  ██      ██      ██ ██ ", "██████  ██████  ██      ██████  ██  ██"];
+  var boot=['esper interface 2019 ... ready for inquiry','mounting /dev/timer ... ok','loading /etc/esper.conf ... ok','ambient bus ... online','type help for commands'];
+  applyVol();setMode('focus',true);
+  function logBoot(){BAN.forEach(function(l){out(l,'banner',true)});boot.forEach(function(l,i){out(l,i===boot.length-1?'ok':'')})}
+  if(bootOn&&!still)seq(BOOT,function(){replayScreen();logBoot()});else logBoot();
+})();
+</script>
+</body>
+</html>
