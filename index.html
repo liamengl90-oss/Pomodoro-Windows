@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>Signal Path</title>
+<link rel="stylesheet" href="styles.css">
+<script src="theme-init.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><button id="btn-theme" class="dot" title="Change theme" aria-label="Change theme"></button><span class="bt">Signal Path</span></div>
+  <div class="top-actions">
+    <button id="btn-undo" class="ic" title="Undo (Ctrl+Z)" aria-label="Undo" disabled><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button><button id="btn-redo" class="ic flip" title="Redo (Ctrl+Y)" aria-label="Redo" disabled><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+    <button id="btn-dash" title="Dashboard">Dashboard</button>
+    <button id="btn-notes" title="Notes">Notes</button>
+    <button id="btn-tasks" title="Daily tasks">Tasks</button>
+    <button id="btn-gantt" title="Gantt chart">Gantt</button>
+    <button id="btn-pomo" title="Pomodoro timer (Space starts and pauses)">Pomodoro</button>
+    <button id="btn-health" title="Health log">Health</button>
+    <button id="btn-finance" title="Finance">Finance</button>
+    <button id="btn-cal" title="Google Calendar (read-only)">Calendar</button>
+  </div>
+  <div class="vault-name" id="vault-name"></div>
+  <button id="btn-side" class="sp-btn" title="Side panel" aria-label="Toggle side panel"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path class="sp-fill" d="M15 4.5h2.5a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H15z"/><path d="M15 4.5v15"/></svg></button>
+</header>
+<div class="body">
+  <aside class="side">
+    <div class="side-tabs"><span class="on">Library</span><button id="btn-new" class="st" title="New note (Ctrl+N)">+ Note</button><button id="btn-dir" class="st" title="New folder (Ctrl+Shift+N)">+ Folder</button></div>
+    <input id="filter" class="filter" placeholder="Search notes" autocomplete="off">
+    <div id="tree" class="tree"></div>
+  </aside>
+  <main class="main">
+    <div class="tabs" id="tabs"></div>
+    <div class="pane" id="pane"></div>
+  </main>
+  <section id="tasks" class="tasks"></section>
+  <section id="gantt" class="gantt"></section>
+  <section id="pomo" class="pomo"></section>
+  <section id="health" class="health"></section>
+  <section id="finance" class="finance"></section>
+  <section id="calendar" class="calendar"></section>
+  <section id="dash" class="dash"></section>
+</div>
+<div id="ctx" class="ctx" hidden></div>
+<script src="renderer.js"></script>
+<script src="gym.js"></script>
+<script src="calendar.js"></script>
+</body>
+</html>

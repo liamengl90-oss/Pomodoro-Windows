@@ -1,42 +1,35 @@
 {
-  "name": "esper-focus",
-  "productName": "ESPER Focus",
-  "version": "1.0.0",
-  "description": "Retro terminal pomodoro timer",
+  "name": "signal-path",
+  "version": "4.5.1",
+  "description": "Local-first notes and planning suite",
   "main": "main.js",
-  "author": "esper",
-  "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win --publish never"
+    "dist": "electron-builder --win portable --publish never"
   },
   "devDependencies": {
-    "electron": "^45.0.0",
-    "electron-builder": "^26.18.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "app.esper.focus",
-    "productName": "ESPER Focus",
-    "directories": {
-      "output": "dist"
-    },
+    "appId": "local.signalpath.app",
+    "productName": "Signal Path",
     "files": [
       "main.js",
       "preload.js",
-      "app/**/*",
-      "build/icon.png",
-      "package.json"
+      "index.html",
+      "styles.css",
+      "renderer.js",
+      "gym.js",
+      "calendar.js",
+      "theme-init.js",
+      "boss-stone.svg",
+      "boss-wall.jpg",
+      "icon.png"
     ],
     "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ],
-      "icon": "build/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "target": "portable",
+      "icon": "icon.ico"
     }
   }
 }
