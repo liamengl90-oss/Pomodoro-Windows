@@ -1,6 +1,6 @@
 {
   "name": "signal-path",
-  "version": "4.5.1",
+  "version": "4.9.9",
   "description": "Local-first notes and planning suite",
   "main": "main.js",
   "scripts": {
@@ -22,6 +22,7 @@
       "renderer.js",
       "gym.js",
       "calendar.js",
+      "canvas.js",
       "theme-init.js",
       "boss-stone.svg",
       "boss-wall.jpg",

@@ -471,7 +471,7 @@
 
   /* ---------- entry points ---------- */
   async function show() {
-    if (S.view === 'calendar') { window.render(); return; } // clicking Calendar again goes back to the notes, like the other buttons
+    if (S.view === 'calendar') { showDash(); return; } // clicking Calendar again goes back to the dashboard, like the other buttons
     setView('calendar');
     if (!K.status || !K.status.connected) K.status = await api.gcalStatus();
     render();

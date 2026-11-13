@@ -5,7 +5,7 @@ let saveTimer;
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dirOf = (p) => p.replace(/[\\/][^\\/]+$/, '');
-const baseName = (p) => p.split(/[\\/]/).pop().replace(/\.md$/i, '');
+const baseName = (p) => p.split(/[\\/]/).pop().replace(/\.(md|canvas)$/i, '');
 const cur = () => S.tabs.find((t) => t.path === S.active);
 const under = (p, src) => p === src || (p.startsWith(src) && /^[\\/]/.test(p.slice(src.length)));
 
@@ -19,6 +19,28 @@ const inl = (s) => esc(s)
   .replace(/~~([^~]+)~~/g, '<s>$1</s>')
   .replace(/\[\[([^\]]+)\]\]/g, '<span class="wl">$1</span>');
 
+/* ---------- images (4.7) ---------- */
+const IMGX = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const qa = (s) => esc(String(s == null ? '' : s)).replace(/"/g, '&quot;');
+const encPath = (rel) => rel.split('/').map((s) => encodeURIComponent(s).replace(/\(/g, '%28').replace(/\)/g, '%29')).join('/');
+const decPath = (s) => { try { return decodeURI(s); } catch { return s; } };
+const fileUrl = (rel) => 'file:///' + (S.root.replace(/\\/g, '/') + '/' + rel).split('/').map((s, i) => (i === 0 && /^[A-Za-z]:$/.test(s) ? s : encodeURIComponent(s))).join('/').replace(/^\//, '');
+const IMGW = {};
+function imgHtml(src, alt, w, wiki) {
+  const web = /^https?:/i.test(src), bare = wiki && !/[\\/]/.test(src), file = decPath(src);
+  const inner = web ? `<span class="imgx">External image · ${qa(src)}</span>` : `<img draggable="false" alt="${qa(alt)}" ${bare ? `data-pending="${qa(file)}"` : `src="${qa(fileUrl(file))}"`}>`;
+  return `<div class="imgb${web ? ' web' : ''}" contenteditable="false" data-src="${qa(src)}" data-alt="${qa(alt)}" data-w="${w || ''}" data-wiki="${wiki ? 1 : 0}"${w ? ` style="width:${+w}px"` : ''}>${inner}<i class="rsz"></i></div>`;
+}
+async function imgResolve(root) {
+  for (const img of root.querySelectorAll ? root.querySelectorAll('img[data-pending]') : []) {
+    const name = img.dataset.pending; img.removeAttribute('data-pending');
+    let rel = IMGW[name]; if (rel === undefined) { rel = await api.imgFind(name); IMGW[name] = rel; }
+    if (rel) { img.src = fileUrl(rel); img.parentElement.dataset.rel = rel; } else img.parentElement.classList.add('miss');
+  }
+}
+const imgRel = (b) => b.dataset.rel || (b.dataset.wiki === '1' ? '' : decPath(b.dataset.src));
+/* collapsible sections (4.9): stored as Obsidian foldable callouts  > [!note]+ Title  (+ open, - closed) */
+const foldHtml = (type, mark, title, body) => `<div class="fold" data-type="${qa(type)}" data-fold="${mark ? 1 : 0}" data-open="${mark === '-' ? 0 : 1}"><div class="fold-h"><span class="fold-c" contenteditable="false"></span><span class="fold-t">${title || '<br>'}</span></div><div class="fold-b">${body}</div></div>`;
 const taskHtml = (h, done, ind) =>
   `<div class="task${done ? ' done' : ''}" data-done="${done ? 1 : 0}" data-ind="${ind}" style="margin-left:${ind * 8}px"><span class="box" contenteditable="false"></span><span class="tx">${h || '<br>'}</span></div>`;
 function taskEl(h, done, ind) { const d = document.createElement('div'); d.innerHTML = taskHtml(h, done, ind); return d.firstChild; }
@@ -46,6 +68,14 @@ function fromMd(src) {
       endUl(); const rows = [ln]; i += 2;
       while (i < lines.length && TROW.test(lines[i])) rows.push(lines[i++]);
       i--; h += tableHtml(rows); continue;
+    }
+    if ((m = ln.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/)) && (IMGX.test(m[2].split('?')[0]) || /^https?:/i.test(m[2]))) { endUl(); const am = m[1].match(/^(.*?)(?:\|(\d+))?$/); h += imgHtml(m[2].trim(), am[1], am[2], false); continue; }
+    if ((m = ln.match(/^!\[\[([^\]|]+)(?:\|(\d+)(?:x\d+)?)?\]\]\s*$/)) && IMGX.test(m[1])) { endUl(); h += imgHtml(m[1].trim(), '', m[2], true); continue; }
+    if (/^\s*([-*_])\1{2,}\s*$/.test(ln)) { endUl(); h += '<hr>'; continue; }
+    if ((m = ln.match(/^> ?\[!([\w-]+)\]([+-]?)[ \t]*(.*)$/))) {
+      endUl(); const body = []; let j = i + 1;
+      while (j < lines.length && /^>/.test(lines[j]) && !/^> ?\[![\w-]+\]/.test(lines[j])) { body.push(lines[j].replace(/^> ?/, '')); j++; }
+      i = j - 1; h += foldHtml(m[1], m[2], inl(m[3]), fromMd(body.join('\n'))); continue;
     }
     if ((m = ln.match(/^(\s*)[-*] \[( |x|X)\] ?(.*)$/))) { endUl(); h += taskHtml(inl(m[3]), m[2] !== ' ', m[1].length); continue; }
     if ((m = ln.match(/^[-*] (.*)$/))) { if (!ul) { h += '<ul>'; ul = true; } h += `<li>${inl(m[1])}</li>`; continue; }
@@ -82,6 +112,15 @@ function toMd(ed) {
     if (n.nodeType === 3) { out.push(n.nodeValue.replace(/\u00a0/g, ' ')); return; }
     if (n.nodeType !== 1) return;
     const t = n.tagName;
+    if (n.classList.contains('imgb')) { const w = +n.dataset.w || 0; out.push(n.dataset.wiki === '1' ? `![[${n.dataset.src}${w ? '|' + w : ''}]]` : `![${n.dataset.alt || ''}${w ? '|' + w : ''}](${n.dataset.src})`); return; }
+    if (t === 'HR') { out.push('---'); return; }
+    if (n.classList.contains('fold')) {
+      const fl = n.dataset.fold === '1', ttl = inlineMd(n.querySelector('.fold-t')).trim();
+      out.push(`> [!${n.dataset.type || 'note'}]${fl ? (n.dataset.open === '1' ? '+' : '-') : ''}${ttl ? ' ' + ttl : ''}`);
+      const inner = toMd(n.querySelector('.fold-b')); if (inner.trim()) inner.split('\n').forEach((l) => out.push(l ? '> ' + l : '>'));
+      const nx = n.nextElementSibling; if (nx && (nx.classList.contains('fold') || nx.tagName === 'BLOCKQUOTE')) out.push('');
+      return;
+    }
     if (n.classList.contains('task')) { out.push(' '.repeat(+n.dataset.ind || 0) + `- [${n.dataset.done === '1' ? 'x' : ' '}] ` + inlineMd(n.querySelector('.tx'))); return; }
     if (t === 'TABLE') {
       if (n.previousElementSibling && n.previousElementSibling.tagName === 'TABLE') out.push('');
@@ -115,7 +154,7 @@ function renderTree() {
         el.appendChild(r);
         if (open) walk(n.children, depth + 1);
       } else if (!f || n.name.toLowerCase().includes(f)) {
-        const r = mk(n, depth, `<span class="ni"></span><span class="nm">${esc(n.name)}</span>`, n.path === S.active ? 'active' : '');
+        const r = mk(n, depth, `<span class="${n.kind === 'canvas' ? 'cvi' : 'ni'}"></span><span class="nm">${esc(n.name)}</span>`, n.path === S.active ? 'active' : '');
         r.onclick = () => openNote(n.path);
         el.appendChild(r);
       }
@@ -150,7 +189,7 @@ async function drop(src, dest) {
   if (!src) return;
   await flush();
   const np = await api.move(src, dest);
-  if (np !== src) { remap(src, np); S.open.add(dest); }
+  if (np !== src) { remap(src, np); S.open.add(dest); await syncRewritten(); }
   await refreshTree(); renderTabs();
 }
 
@@ -158,12 +197,19 @@ function menu(e, n, row) {
   const m = $('ctx'); m.innerHTML = '';
   const add = (l, fn) => { const b = document.createElement('div'); b.textContent = l; b.onclick = () => { m.hidden = true; fn(); }; m.appendChild(b); };
   if (n.type === 'dir') { add('Rename', () => renameDir(n, row)); add('New note here', () => { S.target = n.path; newNote(); }); }
-  add('Delete', () => uiConfirm({ title: 'Move to trash?', msg: `“${n.name}” will be moved to the trash.`, ok: 'Move to trash', danger: true, cb: async () => {
-    await flush(); await api.trash(n.path);
-    S.tabs = S.tabs.filter((t) => !under(t.path, n.path));
-    if (!cur()) S.active = S.tabs.length ? S.tabs[S.tabs.length - 1].path : null;
-    await refreshTree(); renderTabs(); renderPane();
-  } }));
+  add('Delete', async () => {
+    const info = await api.attInspect(n.path);
+    const go = async (mode) => {
+      await flush(); if (mode) await api.attDispose(n.path, mode); await api.trash(n.path);
+      S.tabs = S.tabs.filter((t) => !under(t.path, n.path));
+      if (!cur()) S.active = S.tabs.length ? S.tabs[S.tabs.length - 1].path : null;
+      await syncRewritten(); await refreshTree(); renderTabs(); renderPane();
+    };
+    if (info && info.count) {
+      const s = info.count === 1 ? '' : 's', sh = info.shared ? ` ${info.shared} ${info.shared === 1 ? 'is' : 'are'} also used by other notes, so ${info.shared === 1 ? 'it is' : 'they are'} kept either way (moved to attachments/_unsorted).` : '';
+      uiConfirm({ title: 'Move to trash?', msg: `“${n.name}” has ${info.count} image${s} stored with it.${sh} What should happen to the images?`, ok: 'Delete note and images', danger: true, cb: () => go('delete'), alt: { label: 'Delete note, keep images', cb: () => go('keep') } });
+    } else uiConfirm({ title: 'Move to trash?', msg: `“${n.name}” will be moved to the trash.`, ok: 'Move to trash', danger: true, cb: () => go(null) });
+  });
   m.style.left = e.clientX + 'px'; m.style.top = e.clientY + 'px'; m.hidden = false;
 }
 
@@ -173,7 +219,7 @@ function renameDir(n, row) {
   let done = false;
   const fin = async (ok) => {
     if (done) return; done = true;
-    if (ok && i.value.trim() && i.value !== n.name) { await flush(); const np = await api.renameDir(n.path, i.value); if (np !== n.path) remap(n.path, np); }
+    if (ok && i.value.trim() && i.value !== n.name) { await flush(); const np = await api.renameDir(n.path, i.value); if (np !== n.path) { remap(n.path, np); await syncRewritten(); } }
     await refreshTree(); renderTabs();
   };
   i.onkeydown = (e) => { if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); };
@@ -181,11 +227,17 @@ function renameDir(n, row) {
 }
 
 /* ---------- tabs + notes ---------- */
+/* after a rename / move the main process rewrites image links and canvas references on disk: pull the new text into any open tab */
+async function syncRewritten() {
+  let list = []; try { list = await api.refsTake(); } catch { /* ignore */ }
+  for (const p of list) { const t = S.tabs.find((x) => x.path === p); if (!t) continue; t.text = await api.read(p); t.dirty = false; if (t.hist) { t.hist.last = t.text; t.hist.u = []; t.hist.r = []; } }
+  renderTabs(); if (list.includes(S.active)) renderPane();
+}
 async function openNote(path) {
   if (!S.tabs.find((t) => t.path === path)) {
     const text = await api.read(path);
-    if (/^---\r?\n[\s\S]*?\btype: health\b[\s\S]*?\r?\n---/.test(text)) { const y = (text.match(/\nyear: (\d{4})/) || [])[1]; showHealth(y ? +y : null, true); return; }
-    S.tabs.push({ path, name: baseName(path), text, dirty: false });
+    if (!/\.canvas$/i.test(path) && /^---\r?\n[\s\S]*?\btype: health\b[\s\S]*?\r?\n---/.test(text)) { const y = (text.match(/\nyear: (\d{4})/) || [])[1]; showHealth(y ? +y : null, true); return; }
+    S.tabs.push({ path, name: baseName(path), text, dirty: false, kind: /\.canvas$/i.test(path) ? 'canvas' : 'note' });
   }
   S.active = path; S.target = dirOf(path); render();
 }
@@ -200,7 +252,7 @@ function renderTabs() {
   const el = $('tabs'); el.innerHTML = '';
   for (const t of S.tabs) {
     const d = document.createElement('div'); d.className = 'tab' + (t.path === S.active ? ' on' : '');
-    d.innerHTML = `${t.dirty ? '<i class="mod"></i>' : ''}<span>${esc(t.name)}</span><span class="x">×</span>`;
+    d.innerHTML = `${t.dirty ? '<i class="mod"></i>' : ''}${t.kind === 'canvas' ? '<i class="cvg"></i>' : ''}<span>${esc(t.name)}</span><span class="x">×</span>`;
     d.onclick = () => { S.active = t.path; render(); };
     d.querySelector('.x').onclick = (e) => { e.stopPropagation(); closeTab(t.path); };
     el.appendChild(d);
@@ -211,7 +263,13 @@ const FONTS = [['Sans', 'Segoe UI, sans-serif'], ['Serif', 'Georgia, serif'], ['
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 40];
 
 function renderPane() {
+  if (window.cvClose) cvClose();
   const t = cur(), pane = $('pane'); S.range = null;
+  if (t && t.kind === 'canvas') {
+    if (typeof cvOpen !== 'function') { pane.innerHTML = '<div class="hint">The canvas module (canvas.js) did not load. Make sure canvas.js is in the project and listed under build.files in package.json.</div>'; return; }
+    try { cvOpen(pane, t); } catch (err) { pane.innerHTML = `<div class="hint">The canvas could not be opened.<br><small>${esc(String(err && err.message || err))}</small></div>`; }
+    return;
+  }
   if (!t) { pane.innerHTML = '<div class="hint">Open a note from the library, or press Ctrl+N.</div>'; return; }
   pane.innerHTML = `
     <div class="tools" id="tools">
@@ -226,44 +284,197 @@ function renderPane() {
       <button data-c="ul" title="Bullet list">• List</button>
       <button data-c="task" class="tick" title="Tick box (inside a table it ticks the cell)">☑ Tick box</button>
       <button data-c="table" class="tick" title="Insert table">▦ Insert table</button>
+      <button data-c="image" class="tick" title="Insert image (you can also paste or drop pictures)">▣ Image</button>
+      <button data-c="hr" class="tick" title="Insert a divider line">― Divider</button>
+      <button data-c="fold" class="tick" title="Collapse the text under this line">▾ Fold</button>
     </div>
     <div class="doc"><div class="sheet">
       <input class="title" id="title" value="${esc(t.name)}" spellcheck="false">
       <div class="ed" id="ed" contenteditable="true" spellcheck="true"></div>
     </div></div>`;
   const ed = $('ed'), tools = $('tools'), title = $('title');
-  ed.innerHTML = fromMd(t.text); nBase(t);
+  ed.innerHTML = fromMd(t.text); ed.dataset.owner = t.path; nBase(t);
 
   title.onkeydown = (e) => { if (e.key === 'Enter') { title.blur(); ed.focus(); } };
-  title.onblur = async () => {
-    const np = await api.rename(t.path, title.value);
-    if (np !== t.path) { if (S.active === t.path) S.active = np; t.path = np; t.name = baseName(np); await refreshTree(); }
-    title.value = t.name; renderTabs();
-  };
+  title.onblur = async () => { await renameTab(t, title.value); title.value = t.name; };
 
   tools.onmousedown = (e) => { if (e.target.tagName !== 'SELECT') e.preventDefault(); };
-  tools.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.c === 'table') { e.stopPropagation(); tablePicker(b); } else cmd(b.dataset.c); };
+  tools.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.c === 'table') { e.stopPropagation(); tablePicker(b); } else if (b.dataset.c === 'image') pickImages($('ed')); else if (b.dataset.c === 'hr') insertDivider($('ed')); else if (b.dataset.c === 'fold') foldDialog($('ed'), b); else cmd(b.dataset.c); };
   $('f-font').onchange = (e) => { applyStyle('fontFamily', e.target.value); e.target.value = ''; };
   $('f-size').onchange = (e) => { applyStyle('fontSize', e.target.value + 'px'); e.target.value = ''; };
 
-  ed.addEventListener('input', changed);
-  ed.addEventListener('keydown', keys);
-  ed.addEventListener('drop', (e) => e.preventDefault());
-  ed.addEventListener('paste', (e) => { e.preventDefault(); let tx = e.clipboardData.getData('text/plain'); if (closestIn(getSelection().anchorNode, 'td,th')) tx = tx.replace(/\s*\r?\n\s*/g, ' '); document.execCommand('insertText', false, tx); });
-  ed.addEventListener('contextmenu', (e) => { const c = e.target.closest && e.target.closest('td,th'); if (c && ed.contains(c)) { e.preventDefault(); e.stopPropagation(); tableMenu(e, c); } });
+  wireEd(ed); imgResolve(ed);
+}
+
+async function renameTab(t, name) {
+  await flush();
+  const np = await api.rename(t.path, name);
+  if (np !== t.path) { if (S.active === t.path) S.active = np; t.path = np; t.name = baseName(np); await syncRewritten(); await refreshTree(); }
+  renderTabs();
+}
+
+/* ---------- editor wiring + image handling (4.7) ---------- */
+const imgFiles = (dt) => [...((dt && dt.files) || [])].filter((f) => /^image\//.test(f.type));
+const stamp = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
+const ownerOf = (ed) => ed.dataset.owner || (cur() && cur().path);
+async function addImgFiles(ed, files) {
+  const owner = ownerOf(ed); if (!owner) return; const rels = [];
+  for (const f of files) {
+    const bytes = new Uint8Array(await f.arrayBuffer()), generic = !f.name || /^image\.\w+$/i.test(f.name);
+    const ext = ((f.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg'));
+    const rel = await api.imgSave(owner, generic ? `Pasted image ${stamp()}.${ext}` : f.name, bytes); if (rel) rels.push(rel);
+  }
+  insertImgs(ed, rels);
+}
+async function pickImages(ed) { if (!ed) return; const owner = ownerOf(ed); if (!owner) return; insertImgs(ed, await api.imgPick(owner)); }
+function insertImgs(ed, rels) {
+  if (!ed || !rels || !rels.length) return;
+  ed.focus(); if (S.range && ed.contains(S.range.startContainer)) restoreSel();
+  const sel = getSelection(); let cb = sel.rangeCount && ed.contains(sel.anchorNode) ? sel.anchorNode : null;
+  while (cb && cb.parentNode !== ed) cb = cb.parentNode;
+  let anchor = cb && cb.nodeType === 1 ? cb : null, last = null;
+  const empty = anchor && anchor.tagName === 'DIV' && !anchor.classList.contains('imgb') && !anchor.textContent.trim() && !anchor.querySelector('.box,.imgb,img');
+  rels.forEach((rel) => {
+    const d = document.createElement('div'); d.innerHTML = imgHtml(encPath(rel), '', '', false); const blk = d.firstChild;
+    if (empty && !last) anchor.replaceWith(blk); else if (last) last.after(blk); else if (anchor) anchor.after(blk); else ed.appendChild(blk);
+    last = blk; imgResolve(blk);
+  });
+  if (!last.nextElementSibling || /^(TABLE)$/.test(last.nextElementSibling.tagName) || last.nextElementSibling.classList.contains('imgb')) { const g = document.createElement('div'); g.innerHTML = '<br>'; last.after(g); }
+  caret(last.nextElementSibling, true); (ed.dataset.card ? cvCardChanged(ed) : changed());
+}
+function insertDivider(ed) {
+  if (!ed) return; ed.focus(); if (S.range && ed.contains(S.range.startContainer)) restoreSel();
+  const sel = getSelection(), b = sel.rangeCount && ed.contains(sel.anchorNode) ? blockOf() : null, hr = document.createElement('hr');
+  const empty = b && b.nodeType === 1 && b.tagName === 'DIV' && !b.textContent.trim() && !b.querySelector('.box,.imgb,img');
+  if (empty) b.replaceWith(hr); else if (b && b.nodeType === 1) b.after(hr); else ed.appendChild(hr);
+  let nx = hr.nextElementSibling; if (!nx || nx.tagName === 'HR' || nx.classList.contains('fold')) { nx = document.createElement('div'); nx.innerHTML = '<br>'; hr.after(nx); }
+  caret(nx, true); (ed.dataset.card ? cvCardChanged(ed) : changed());
+}
+const FOLD_STOP = /^(H[1-3]|HR)$/;
+function foldTitleHtml(b) {
+  if (b.classList.contains('task')) return b.querySelector('.tx').innerHTML;
+  if (b.tagName === 'UL') return b.firstElementChild ? b.firstElementChild.innerHTML : '';
+  if (/^(DIV|H[1-3]|BLOCKQUOTE)$/.test(b.tagName) && !b.classList.contains('imgb') && !b.classList.contains('fold')) return b.innerHTML.replace(/^<br>$/, '');
+  return '';
+}
+function foldDialog(ed, btn) {
+  if (!ed) return; document.querySelectorAll('.fold-pop').forEach((p) => p.remove());
+  ed.focus(); if (S.range && ed.contains(S.range.startContainer)) restoreSel();
+  const sel = getSelection(); if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return;
+  const rg = sel.getRangeAt(0), b = blockOfNode(rg.startContainer, ed); if (!b || b.nodeType !== 1 || b.classList.contains('fold')) return;
+  const sibs = []; for (let s = b.nextElementSibling; s; s = s.nextElementSibling) sibs.push(s);
+  let auto = 0; while (auto < sibs.length && !FOLD_STOP.test(sibs[auto].tagName) && !sibs[auto].classList.contains('fold')) auto++;
+  if (!sel.isCollapsed) { const eb = blockOfNode(rg.endContainer, ed); if (eb && eb !== b && eb.parentNode === b.parentNode) { const k = sibs.indexOf(eb) + 1; if (k > 0) auto = k; } }
+  const blank = (s) => s.tagName === 'DIV' && !s.classList.contains('imgb') && !s.classList.contains('fold') && !s.textContent.trim() && !s.querySelector('.box,img,.imgb');
+  while (auto > 0 && blank(sibs[auto - 1])) auto--;
+  let n = Math.min(auto, sibs.length);
+  const pop = document.createElement('div'); pop.className = 'fold-pop';
+  pop.innerHTML = '<div class="fp-t">Collapse text under this line</div><div class="fp-r"><button data-d="-1">−</button><b class="fp-n"></b><button data-d="1">+</button><span class="fp-u"></span></div><div class="fp-h">Stops at the next heading or divider by default. Use − / + to choose exactly how many lines fold away.</div><div class="fp-a"><button data-a="x">Cancel</button><button data-a="ok" class="primary">Collapse</button></div>';
+  const lab = pop.querySelector('.fp-n'), unit = pop.querySelector('.fp-u');
+  const paint = () => { lab.textContent = n; unit.textContent = n === 1 ? 'line' : 'lines'; b.classList.add('fold-prev'); sibs.forEach((s, i) => s.classList.toggle('fold-prev', i < n)); };
+  const shut = () => { pop.remove(); [b, ...sibs].forEach((s) => s.classList.remove('fold-prev')); document.removeEventListener('mousedown', away, true); };
+  const away = (e) => { if (!pop.contains(e.target)) shut(); };
+  const go = () => {
+    const body = sibs.slice(0, n), fe = document.createElement('div'); fe.innerHTML = foldHtml('note', '+', foldTitleHtml(b), '<div><br></div>'); const f = fe.firstChild;
+    if (body.length) { const fb = f.querySelector('.fold-b'); fb.innerHTML = ''; body.forEach((x) => { x.classList.remove('fold-prev'); fb.appendChild(x); }); }
+    b.classList.remove('fold-prev'); b.replaceWith(f);
+    if (!f.nextElementSibling) { const g = document.createElement('div'); g.innerHTML = '<br>'; f.after(g); }
+    shut(); const t = f.querySelector('.fold-t'); ed.focus(); const r2 = document.createRange(); r2.selectNodeContents(t); r2.collapse(false); const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(r2);
+    (ed.dataset.card ? cvCardChanged(ed) : changed());
+  };
+  pop.onmousedown = (e) => e.preventDefault();
+  pop.onclick = (e) => { const d = e.target.closest('[data-d]'), a = e.target.closest('[data-a]'); if (d) { n = Math.max(0, Math.min(sibs.length, n + +d.dataset.d)); paint(); } else if (a) { if (a.dataset.a === 'ok') go(); else shut(); } };
+  const r = (btn || ed).getBoundingClientRect(); pop.style.left = Math.max(8, Math.min(r.left, innerWidth - 300)) + 'px'; pop.style.top = r.bottom + 8 + 'px';
+  document.body.appendChild(pop); document.addEventListener('mousedown', away, true); paint();
+}
+function lightbox(url) {
+  const ov = document.createElement('div'); ov.className = 'lb'; ov.tabIndex = -1; ov.innerHTML = `<img src="${qa(url)}">`;
+  const img = ov.firstChild; let z = 1;
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  img.ondblclick = () => { z = z === 1 ? 2 : 1; img.style.transform = `scale(${z})`; img.style.cursor = z === 1 ? 'zoom-in' : 'zoom-out'; };
+  ov.onwheel = (e) => { e.preventDefault(); z = Math.max(.2, Math.min(8, z * Math.exp(-e.deltaY * .0015))); img.style.transform = `scale(${z})`; };
+  ov.onkeydown = (e) => { if (e.key === 'Escape') ov.remove(); };
+  document.body.appendChild(ov); ov.focus();
+}
+function selectImg(ed, blk) { ed.querySelectorAll('.imgb.sel').forEach((b) => { if (b !== blk) b.classList.remove('sel'); }); if (blk) blk.classList.add('sel'); }
+function imgMenu(e, blk, ed, ping) {
+  const w = ed.clientWidth - 8, setW = (f) => { if (f) { blk.dataset.w = Math.round(w * f); blk.style.width = blk.dataset.w + 'px'; } else { blk.dataset.w = ''; blk.style.width = ''; } ping(); };
+  const rel = imgRel(blk), items = [['Small (25%)', () => setW(.25)], ['Medium (50%)', () => setW(.5)], ['Large (75%)', () => setW(.75)], ['Full width', () => setW(1)], ['Original size', () => setW(0)], null];
+  if (rel) items.push(['View full size', () => lightbox(fileUrl(rel))], ['Show in folder', () => api.showInFolder(rel)], null);
+  items.push(['Remove from note', () => { blk.remove(); if (!ed.firstChild) ed.innerHTML = '<div><br></div>'; ping(); }, 'danger']);
+  ctxAt(e, items);
+}
+function startImgResize(e, blk, ping) {
+  e.preventDefault(); e.stopPropagation(); const x0 = e.clientX, w0 = blk.getBoundingClientRect().width, max = blk.parentElement.clientWidth;
+  const mv = (ev) => { const w = Math.max(48, Math.min(max, Math.round(w0 + ev.clientX - x0))); blk.style.width = w + 'px'; blk.dataset.w = w; };
+  const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); ping(); };
+  document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+}
+function wireEd(ed) {
+  const ping = () => (ed.dataset.card ? cvCardChanged(ed) : changed());
+  ed.addEventListener('input', ping);
+  ed.addEventListener('keydown', (e) => {
+    if (ed.isContentEditable && (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete')) {
+      const s = getSelection(), ft = s.rangeCount && closestIn(s.anchorNode, '.fold-t');
+      if (ft && ed.contains(ft) && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const f = ft.closest('.fold'), fb = f.querySelector('.fold-b'); f.dataset.open = '1'; caret(fb.firstElementChild || fb, true); ping(); return; }
+      if (s.isCollapsed && s.rangeCount) {
+        const rg = s.getRangeAt(0), edge = (el, atEnd) => { const q = document.createRange(); q.selectNodeContents(el); if (atEnd) q.setStart(rg.startContainer, rg.startOffset); else q.setEnd(rg.startContainer, rg.startOffset); return !q.toString() && !q.cloneContents().querySelector('img,.box,.imgb'); };
+        if (ft && ed.contains(ft) && ((e.key === 'Backspace' && edge(ft, false)) || (e.key === 'Delete' && edge(ft, true)))) { e.preventDefault(); return; }
+        const fb = closestIn(s.anchorNode, '.fold-b'), first = fb && ed.contains(fb) && blockOfNode(s.anchorNode, ed);
+        if (fb && first && e.key === 'Backspace' && first === fb.firstElementChild && edge(first, false)) { e.preventDefault(); return; }
+      }
+    }
+    if (ed.isContentEditable && (e.key === 'Delete' || e.key === 'Backspace')) { const b = ed.querySelector('.imgb.sel'); if (b) { e.preventDefault(); b.remove(); if (!ed.firstChild) ed.innerHTML = '<div><br></div>'; ping(); return; } }
+    if (ed.isContentEditable) keys(e);
+  });
+  ed.addEventListener('dragover', (e) => { if (ed.isContentEditable && imgFiles(e.dataTransfer).length) e.preventDefault(); });
+  ed.addEventListener('drop', (e) => {
+    if (!ed.isContentEditable) return;
+    e.preventDefault(); e.stopPropagation(); const f = imgFiles(e.dataTransfer); if (!f.length) return;
+    const rg = document.caretRangeFromPoint && document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (rg && ed.contains(rg.startContainer)) { const s = getSelection(); s.removeAllRanges(); s.addRange(rg); S.range = rg.cloneRange(); }
+    addImgFiles(ed, f);
+  });
+  ed.addEventListener('paste', (e) => {
+    if (!ed.isContentEditable) return;
+    const f = imgFiles(e.clipboardData); e.preventDefault(); e.stopPropagation();
+    if (f.length && !e.clipboardData.getData('text/plain')) { addImgFiles(ed, f); return; }
+    let tx = e.clipboardData.getData('text/plain'); if (closestIn(getSelection().anchorNode, 'td,th')) tx = tx.replace(/\s*\r?\n\s*/g, ' ');
+    document.execCommand('insertText', false, tx);
+  });
+  ed.addEventListener('contextmenu', (e) => {
+    const fh = e.target.closest && e.target.closest('.fold-h'), fd = fh && fh.closest('.fold');
+    if (fd && ed.contains(fd) && ed.isContentEditable) {
+      e.preventDefault(); e.stopPropagation();
+      ctxAt(e, [[fd.dataset.open === '1' ? 'Collapse' : 'Expand', () => { fd.dataset.fold = '1'; fd.dataset.open = fd.dataset.open === '1' ? '0' : '1'; ping(); }],
+        ['Unwrap (keep the text)', () => { const t = document.createElement('div'); t.innerHTML = fd.querySelector('.fold-t').innerHTML || '<br>'; fd.before(t, ...fd.querySelector('.fold-b').children); fd.remove(); ping(); }],
+        null, ['Delete this section', () => { fd.remove(); if (!ed.firstChild) ed.innerHTML = '<div><br></div>'; ping(); }, 'danger']]);
+      return;
+    }
+    const ib = e.target.closest && e.target.closest('.imgb'); if (ib && ed.contains(ib)) { e.preventDefault(); e.stopPropagation(); imgMenu(e, ib, ed, ping); return; }
+    if (!ed.isContentEditable) return;
+    const c = e.target.closest && e.target.closest('td,th'); if (c && ed.contains(c)) { e.preventDefault(); e.stopPropagation(); tableMenu(e, c); }
+  });
+  ed.addEventListener('dblclick', (e) => { const ib = e.target.closest && e.target.closest('.imgb:not(.web)'); const img = ib && ib.querySelector('img'); if (img && img.src) { e.preventDefault(); e.stopPropagation(); lightbox(img.src); } });
   ed.addEventListener('mousemove', (e) => { const c = e.target.closest && e.target.closest('td[data-cb],th[data-cb]'); ed.style.cursor = c && e.clientX - c.getBoundingClientRect().left < 34 ? 'pointer' : ''; });
   ed.addEventListener('mousedown', (e) => {
+    const fc = e.target.closest && e.target.closest('.fold-c');
+    if (fc && ed.contains(fc)) { e.preventDefault(); e.stopPropagation(); const f = fc.closest('.fold'); f.dataset.open = f.dataset.open === '1' ? '0' : '1'; ping(); return; }
+    const rz = e.target.closest && e.target.closest('.rsz'); if (rz) { startImgResize(e, rz.parentElement, ping); return; }
+    const ib = e.target.closest && e.target.closest('.imgb');
+    if (ed.isContentEditable) selectImg(ed, ib);
+    if (ib && ed.isContentEditable) { e.preventDefault(); ed.focus(); return; }
     const cc = e.target.closest && e.target.closest('td[data-cb],th[data-cb]');
-    if (cc && e.button === 0 && e.clientX - cc.getBoundingClientRect().left < 34) { e.preventDefault(); cc.dataset.cb = cc.dataset.cb === '1' ? '0' : '1'; changed(); return; }
+    if (cc && e.button === 0 && e.clientX - cc.getBoundingClientRect().left < 34) { e.preventDefault(); cc.dataset.cb = cc.dataset.cb === '1' ? '0' : '1'; ping(); return; }
     const b = e.target.closest && e.target.closest('.box'); if (!b) return;
-    e.preventDefault(); const tk = b.parentElement, d = tk.dataset.done !== '1';
-    tk.dataset.done = d ? '1' : '0'; tk.classList.toggle('done', d); changed();
+    e.preventDefault(); e.stopPropagation(); const tk = b.parentElement, d = tk.dataset.done !== '1';
+    tk.dataset.done = d ? '1' : '0'; tk.classList.toggle('done', d); ping();
   });
-
 }
 
 function changed() {
   const ed = $('ed'), t = cur(); if (!ed || !t) return;
+  if (ed.dataset.card) { cvCardChanged(ed); return; }
   if (!ed.firstChild) { ed.innerHTML = '<div><br></div>'; caret(ed.firstChild, true); }
   t.text = toMd(ed); markDirty(t); nRec(t);
 }
@@ -288,7 +499,13 @@ function syncTick() {
 function restoreSel() { if (S.range) { const s = getSelection(); s.removeAllRanges(); s.addRange(S.range); } }
 function caret(el, start) { const r = document.createRange(); r.selectNodeContents(el); r.collapse(!!start); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
 function closestIn(node, sel) { const e = node && (node.nodeType === 1 ? node : node.parentElement), c = e && e.closest(sel); return c && $('ed').contains(c) ? c : null; }
-function blockOf() { let n = getSelection().anchorNode; const ed = $('ed'); while (n && n.parentNode !== ed) n = n.parentNode; return n; }
+function blockOfNode(n, ed) {
+  if (n === ed) return ed.lastElementChild;
+  while (n && n.parentNode && n.parentNode !== ed && !(n.parentNode.classList && n.parentNode.classList.contains('fold-b'))) { if (n.nodeType === 1 && n.classList.contains('fold-h')) return null; n = n.parentNode; }
+  return n && n.parentNode ? n : null;
+}
+function blockOf() { return blockOfNode(getSelection().anchorNode, $('ed')); }
+const inFoldTitle = () => { const s = getSelection(); return s.rangeCount && closestIn(s.anchorNode, '.fold-t'); };
 
 function cmd(c) {
   const ed = $('ed'); ed.focus(); restoreSel();
@@ -297,6 +514,7 @@ function cmd(c) {
     if (c === 'task') { if (cell.dataset.cb) delete cell.dataset.cb; else cell.dataset.cb = '0'; changed(); syncTick(); return; }
     if (c === 'h1' || c === 'h2' || c === 'ul') return;
   }
+  if ((c === 'h1' || c === 'h2' || c === 'ul' || c === 'task') && inFoldTitle()) return;
   if (c === 'bold' || c === 'italic' || c === 'underline') document.execCommand(c);
   else if (c === 'strike') document.execCommand('strikeThrough');
   else if (c === 'h1' || c === 'h2') { const b = blockOf(); document.execCommand('formatBlock', false, b && b.tagName && b.tagName.toLowerCase() === c ? 'div' : c); }
@@ -420,18 +638,23 @@ async function newFolder() {
   const row = [...$('tree').children].find((r) => r.dataset.path === p);
   if (row) renameDir({ path: p, name: p.split(/[\\/]/).pop() }, row);
 }
+async function newCanvas() {
+  if (SP.page !== 'notes') setView('notes');
+  const dir = S.target || S.root; S.open.add(dir);
+  const p = await api.canvasCreate(dir); await refreshTree(); await openNote(p);
+}
 async function chooseVault() { const v = await api.chooseVault(); if (v) { S.tabs = []; S.active = null; S.target = null; S.open = new Set(); loadVault(v); } }
 function loadVault(v) { if (typeof INC !== 'undefined') INC.loaded = false; if (typeof U !== 'undefined') U.s = {}; if (typeof DB !== 'undefined') DB.loaded = false; S.tasks = null; S.gantt = null; P.loaded = false; S.root = v.root; S.tree = v.tree; $('vault-name').textContent = v.root; render(); }
 function render() { setView('notes'); renderTabs(); renderTree(); renderPane(); }
 
-$('btn-new').onclick = newNote; $('btn-dir').onclick = newFolder; $('btn-notes').onclick = () => setView('notes');
+$('btn-new').onclick = newNote; $('btn-dir').onclick = newFolder; $('btn-canvas').onclick = newCanvas; $('btn-notes').onclick = () => (S.view === 'notes' ? showDash() : setView('notes'));
 $('filter').oninput = (e) => { S.filter = e.target.value; renderTree(); };
 $('tree').ondragover = (e) => e.preventDefault();
 $('tree').ondrop = (e) => { e.preventDefault(); drop(e.dataTransfer.getData('text/plain'), S.root); };
 document.addEventListener('click', () => { $('ctx').hidden = true; });
 document.addEventListener('keydown', (e) => {
   if (!e.ctrlKey) return; const k = e.key.toLowerCase();
-  if (k === 'n') { e.preventDefault(); e.shiftKey ? newFolder() : newNote(); }
+  if (k === 'n') { e.preventDefault(); e.altKey ? newCanvas() : e.shiftKey ? newFolder() : newNote(); }
   else if (k === 'o') { e.preventDefault(); chooseVault(); }
   else if (k === 's') { e.preventDefault(); const t = cur(); if (t) saveNow(t); }
   else if (k === 'w') { e.preventDefault(); if (S.active) closeTab(S.active); }
@@ -453,6 +676,18 @@ let FCOL = [];
 const uid = () => Math.random().toString(36).slice(2, 9);
 const mv = (a, i, d) => { const j = i + d; if (j >= 0 && j < a.length) [a[i], a[j]] = [a[j], a[i]]; };
 let tSave = null;
+/* ---------- motion helpers (4.9.9) ----------
+   The pages rebuild themselves on every change, so a plain CSS transition never gets to play. Instead a handler marks the one
+   object that just changed (FX), the next render tags its element with fx-on / fx-off / fx-new, and the CSS plays the animation. */
+const FX = new Map(), BARS = {};
+const fxCls = (o) => { const f = FX.get(o); return f ? ' fx-' + f : ''; };
+const barSt = (k, p) => { const f = BARS[k] == null ? 0 : BARS[k]; BARS[k] = p; return `width:${p}%;--from:${f}%`; };
+function fxOut(r, fn) {
+  if (!r || r.dataset.fxo) { fn(); return; } r.dataset.fxo = '1';
+  r.style.maxHeight = r.offsetHeight + 'px'; r.style.transition = 'opacity .14s ease, transform .18s ease, max-height .2s cubic-bezier(.2,.8,.2,1) .06s, padding .2s ease .06s';
+  void r.offsetHeight; r.style.opacity = '0'; r.style.transform = 'translateX(14px)'; r.style.maxHeight = '0'; r.style.paddingTop = '0'; r.style.paddingBottom = '0';
+  setTimeout(fn, 230);
+}
 const tip = document.createElement('div'); tip.id = 't-tip'; tip.hidden = true; document.body.appendChild(tip);
 
 function setView(v) { S.view = v; $('btn-notes').classList.toggle('on', v === 'notes'); document.body.classList.toggle('view-tasks', v === 'tasks'); document.body.classList.toggle('view-gantt', v === 'gantt'); $('btn-tasks').classList.toggle('on', v === 'tasks'); $('btn-gantt').classList.toggle('on', v === 'gantt'); document.body.classList.toggle('view-pomo', v === 'pomo'); $('btn-pomo').classList.toggle('on', v === 'pomo'); document.body.classList.toggle('view-health', v === 'health'); $('btn-health').classList.toggle('on', v === 'health'); document.body.classList.toggle('view-finance', v === 'finance'); $('btn-finance').classList.toggle('on', v === 'finance'); document.body.classList.toggle('view-calendar', v === 'calendar'); $('btn-cal').classList.toggle('on', v === 'calendar'); document.body.classList.toggle('view-dash', v === 'dash'); $('btn-dash').classList.toggle('on', v === 'dash'); tip.hidden = true; }
@@ -461,19 +696,19 @@ function tChanged() { uNote('tasks'); try { dbTaskTick(); } catch { /* dashboard
 window.addEventListener('beforeunload', () => { if (tSave) tSaveNow(); });
 
 async function showTasks() {
-  if (S.view === 'tasks') { render(); return; }
+  if (S.view === 'tasks') { showDash(); return; }
   await loadTasksData();
   setView('tasks'); renderTasks();
 }
 
 function ctxAt(e, items) {
-  const m = $('ctx'); m.innerHTML = '';
-  items.forEach((it) => {
-    const b = document.createElement('div');
-    if (!it) b.className = 'sp'; else { b.textContent = it[0]; if (it[2]) b.className = it[2]; b.onclick = () => { m.hidden = true; it[1](); }; }
+  const m = $('ctx'); m.hidden = true; void m.offsetWidth; m.innerHTML = '';
+  items.forEach((it, i) => {
+    const b = document.createElement('div'); b.style.setProperty('--i', Math.min(i, 9));
+    if (!it) b.className = 'sp'; else { b.textContent = it[0]; if (it[2]) b.className = it[2]; b.onclick = it[2] === 'ctx-h' ? (ev) => ev.stopPropagation() : () => { m.hidden = true; it[1](); }; }
     m.appendChild(b);
   });
-  m.style.left = Math.min(e.clientX, innerWidth - 190) + 'px'; m.style.top = Math.min(e.clientY, innerHeight - items.length * 30 - 20) + 'px'; m.hidden = false;
+  m.style.left = Math.min(e.clientX, innerWidth - 190) + 'px'; m.style.top = Math.max(6, Math.min(e.clientY, innerHeight - items.length * 30 - 20)) + 'px'; m.hidden = false;
 }
 function inlineEdit(span, value, save) {
   const i = document.createElement('input'); i.className = 't-edit'; i.value = value; span.replaceWith(i); i.focus(); i.select();
@@ -502,13 +737,14 @@ function noteModal(t) {
 function renderTasks() {
   tip.hidden = true;
   const el = $('tasks'), T = S.tasks, old = el.querySelector('.t-board');
-  const sl = old ? old.scrollLeft : 0, st = old ? old.scrollTop : 0;
+  const sl = old ? old.scrollLeft : 0, st = old ? old.scrollTop : 0, obl = el.querySelector('.tb-list'), bs = obl ? obl.scrollTop : 0;
   const mp = mullProgress(), done = mp.done, pct = mp.tot ? Math.round(done / mp.tot * 100) : 0, wo = !!(T.mull && T.mull.workOnly);
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const mm = !!S.mullMode, mt = mm ? mullTotals() : null; el.classList.toggle('mulling', mm);
   el.innerHTML = `<div class="t-head"><div><h1>${mm ? 'Mulling setup' : 'Daily tasks'}</h1><div class="t-sub">${mm ? `Tick what should come up today, untick what to leave out · ${mt.on} of ${mt.tot} in play · press Mulling again when you’re done` : (T.categories.length ? (mp.tot ? `${date} · ${done} of ${mp.tot} mulling tasks done${wo ? ' · work only' : ''}` : `${date} · no tasks selected for mulling`) : 'Add a category to build your routine')}</div></div>
-    ${mm ? '' : `<div class="t-prog" title="${pct}%"><i style="width:${pct}%"></i></div>`}<button id="t-mull" class="t-mullbtn${mm ? ' on' : ''}" title="Choose which tasks the Pomodoro mulling box can pick from">Mulling</button>${mm ? '' : '<button id="t-reset" title="Uncheck every task in row 1 (daily tasks)">Uncheck row 1</button>'}</div><div class="t-board"></div>`;
-  $('t-mull').onclick = () => { S.mullMode = !S.mullMode; renderTasks(); };
+    ${mm ? '' : `<div class="t-prog" title="${pct}%"><i style="${barSt('all', pct)}"></i></div>`}<button id="t-mull" class="t-mullbtn${mm ? ' on' : ''}" title="Choose which tasks the Pomodoro mulling box can pick from">Mulling</button>${mm ? '' : '<button id="t-reset" title="Uncheck every task in row 1 (daily tasks)">Uncheck row 1</button>'}${mm ? '' : `<button id="t-bank" class="t-bankbtn${S.bankOpen ? ' on' : ''}" title="Task bank: pops out beside your daily tasks" aria-label="Task bank">${BANK_ICON}</button>`}</div><div class="t-board"></div>`;
+  const bb = $('t-bank'); if (bb) bb.onclick = () => { S.bankOpen = !S.bankOpen; S.bankFx = S.bankOpen ? 'open' : 'close'; renderTasks(); };
+  $('t-mull').onclick = () => { S.mullMode = !S.mullMode; S.mullFx = true; renderTasks(); };
   const rb = $('t-reset'); if (rb) rb.onclick = () => uiSure({ title: 'Uncheck row 1?', msg: 'Every box in the Daily tasks row will be unchecked.', ok: 'Uncheck row 1', cb: () => { T.categories.forEach((c) => { if (!c.row) c.tasks.forEach((t) => setTaskDone(t, false)); }); tChanged(); } });
   const board = el.querySelector('.t-board');
   ['Daily tasks', 'Work tasks'].forEach((name, row) => {
@@ -518,15 +754,103 @@ function renderTasks() {
     T.categories.forEach((c, ci) => { if ((c.row ? 1 : 0) === row) line.appendChild(colEl(c, ci)); });
     line.appendChild(ghostCol(row)); sec.appendChild(line); board.appendChild(sec);
   });
+  el.classList.toggle('bank-open', !mm && !!S.bankOpen); if (!mm && S.bankOpen) bankPane(el, bs);
+  const bfx = S.bankFx; S.bankFx = null;
+  if (bfx) { const cl = bfx === 'open' ? 'bank-opening' : 'bank-closing'; el.classList.add(cl); clearTimeout(S.bankFxT); S.bankFxT = setTimeout(() => el.classList.remove('bank-opening', 'bank-closing'), 320); if (bfx === 'open') { const bp = el.querySelector('.t-bankpane'); if (bp) bp.classList.add('slide-in'); } }
+  if (S.mullFx) { S.mullFx = false; board.classList.add('fx-fade'); }
+  FX.clear();
   board.scrollLeft = sl; board.scrollTop = st;
   if (S.focusAdd) { const i = el.querySelector(`.t-add[data-cat="${S.focusAdd}"]`); if (i) i.focus(); S.focusAdd = null; }
 }
 
+/* ---------- task bank (4.9.8) ----------
+   A pop-out drawer on the right of the Tasks page: one list at a time (dropdown to switch), so the daily board stays in view.
+   Not linked to the Pomodoro or to mulling. Stored in the same tasks file under "bank", so sending a task to a day is one
+   undoable step. Ticking only ticks; there is no "completed" folder. */
+const BANK_ICON = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
+function bankData() { const T = S.tasks; if (!T.bank || !Array.isArray(T.bank.lists)) T.bank = { lists: [] }; return T.bank; }
+function bankPane(el, bs) {
+  const B = bankData(); let l = B.lists.find((x) => x.id === S.bankSel) || B.lists[0]; S.bankSel = l ? l.id : null;
+  const d = document.createElement('aside'); d.className = 't-bankpane'; if (l) d.style.setProperty('--c', PAL[l.color % PAL.length]);
+  const todo = l ? l.tasks.filter((t) => !t.done).length : 0;
+  d.innerHTML = l
+    ? `<div class="tb-top"><select class="tb-sel" title="Switch list">${B.lists.map((x) => `<option value="${x.id}"${x.id === l.id ? ' selected' : ''}>${ge(x.name)}</option>`).join('')}</select><button class="t-more tb-more" title="List options">⋯</button></div><div class="tb-sub">${todo} to do${l.tasks.length > todo ? ` · ${l.tasks.length - todo} ticked` : ''}</div><div class="tb-list"></div>`
+    : '<div class="tb-top"><span class="tb-ttl">Task bank</span></div><div class="tb-empty">No lists yet.</div><div class="tb-foot"></div>';
+  el.appendChild(d);
+  const nameEdit = (value, ph, save) => {
+    const host = d.querySelector('.tb-sel') || d.querySelector('.tb-foot') || d.querySelector('.tb-top');
+    const i = document.createElement('input'); i.className = 't-ghost-in tb-name'; i.placeholder = ph; i.value = value;
+    if (host.classList.contains('tb-foot')) host.appendChild(i); else host.replaceWith(i);
+    i.focus(); i.select(); let done = false;
+    const fin = (ok) => { if (done) return; done = true; const v = i.value.trim(); if (ok && v && v !== value) save(v); else renderTasks(); };
+    i.onkeydown = (e) => { if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); };
+    i.onblur = () => fin(!!i.value.trim());
+  };
+  const newList = () => nameEdit('', 'New list name', (v) => { const x = { id: uid(), name: v, color: B.lists.length % PAL.length, tasks: [] }; B.lists.push(x); S.bankSel = x.id; tChanged(); });
+  if (!l) { const f = d.querySelector('.tb-foot'); const b = document.createElement('button'); b.className = 't-ghost tb-newbtn'; b.innerHTML = '<span>+</span> New list'; b.onclick = () => { b.remove(); newList(); }; f.appendChild(b); return; }
+  const li = B.lists.indexOf(l), n = l.tasks.filter((t) => t.done).length;
+  d.querySelector('.tb-sel').onchange = (e) => { S.bankSel = e.target.value; S.bankSwap = true; renderTasks(); };
+  const menu = (e) => ctxAt(e, [
+    ['New list…', newList],
+    ['Rename list', () => nameEdit(l.name, 'List name', (v) => { l.name = v; tChanged(); })],
+    ['Change color', () => { l.color = (l.color + 1) % PAL.length; tChanged(); }],
+    li > 0 && ['Move list up', () => { mv(B.lists, li, -1); tChanged(); }],
+    li < B.lists.length - 1 && ['Move list down', () => { mv(B.lists, li, 1); tChanged(); }],
+    null,
+    n > 0 && ['Uncheck all', () => { l.tasks.forEach((t) => { t.done = false; }); tChanged(); }],
+    n > 0 && [`Delete ticked tasks (${n})`, () => uiConfirm({ title: 'Delete ticked tasks?', msg: `${n} ticked task${n === 1 ? '' : 's'} in “${l.name}” will be deleted from the bank.`, ok: 'Delete', danger: true, cb: () => { l.tasks = l.tasks.filter((t) => !t.done); tChanged(); } })],
+    ['Delete list', () => { const go = () => { B.lists.splice(li, 1); S.bankSel = null; tChanged(); }; if (l.tasks.length) uiConfirm({ title: 'Delete this list?', msg: `“${l.name}” and its ${l.tasks.length} task${l.tasks.length === 1 ? '' : 's'} will be deleted.`, ok: 'Delete', danger: true, cb: go }); else go(); }, 'danger'],
+  ].filter((x) => x !== false));
+  d.querySelector('.tb-more').onclick = (e) => { e.stopPropagation(); menu(e); };
+  d.querySelector('.tb-top').oncontextmenu = (e) => { e.preventDefault(); menu(e); };
+  const list = d.querySelector('.tb-list'), T = S.tasks;
+  if (S.bankSwap) { S.bankSwap = false; list.classList.add('fx-fade'); }
+  /* right-click a task: the categories are right there in the menu; one click sends it (unticked, note kept) to the bottom of that category */
+  const sendItems = (t, row_) => {
+    const out = [];
+    [[0, 'Send to daily tasks'], [1, 'Send to work tasks']].forEach(([row, label]) => {
+      const cs = T.categories.filter((c) => (c.row ? 1 : 0) === row); if (!cs.length) return;
+      out.push([label, () => {}, 'ctx-h']);
+      cs.forEach((c) => out.push([c.name, () => fxOut(row_, () => {
+        const at = l.tasks.indexOf(t); if (at < 0) return;
+        l.tasks.splice(at, 1); const nt = { id: t.id || uid(), text: t.text, done: false, note: t.note || '', subs: [] }; c.tasks.push(nt); FX.set(nt, 'new');
+        tChanged(); if (typeof gToast === 'function') gToast(`Sent to ${c.name}`);
+      })]));
+    });
+    if (out.length) out.push(null);
+    return out;
+  };
+  l.tasks.forEach((t, ti) => {
+    const r = document.createElement('div'); r.className = 't-row' + (t.done ? ' done' : '') + (t.note ? ' has-note' : '') + fxCls(t);
+    r.innerHTML = `<span class="t-box"></span><span class="t-text">${esc(t.text)}</span>`;
+    const rename = () => inlineEdit(r.querySelector('.t-text'), t.text, (v) => { t.text = v; tChanged(); });
+    r.querySelector('.t-box').onclick = () => { t.done = !t.done; FX.set(t, t.done ? 'on' : 'off'); tChanged(); };
+    r.querySelector('.t-text').ondblclick = rename;
+    if (t.note) { r.onmouseenter = () => showTip(r, t.note); r.onmouseleave = () => { tip.hidden = true; }; }
+    r.oncontextmenu = (e) => {
+      e.preventDefault(); tip.hidden = true;
+      ctxAt(e, [
+        ...sendItems(t, r),
+        [t.note ? 'Edit note' : 'Add note', () => noteModal(t)],
+        ['Rename', rename],
+        ti > 0 && ['Move up', () => { mv(l.tasks, ti, -1); tChanged(); }],
+        ti < l.tasks.length - 1 && ['Move down', () => { mv(l.tasks, ti, 1); tChanged(); }],
+        null,
+        ['Delete task', () => fxOut(r, () => { l.tasks.splice(ti, 1); tChanged(); }), 'danger'],
+      ].filter((x) => x !== false));
+    };
+    list.appendChild(r);
+  });
+  const add = document.createElement('input'); add.className = 't-add'; add.placeholder = '+ Add task'; add.dataset.cat = l.id;
+  add.onkeydown = (e) => { if (e.key === 'Enter' && add.value.trim()) { const nt = { id: uid(), text: add.value.trim(), done: false, note: '' }; l.tasks.push(nt); FX.set(nt, 'new'); S.focusAdd = l.id; tChanged(); } };
+  list.appendChild(add); list.scrollTop = bs || 0;
+}
+
 function colEl(c, ci) {
-  const T = S.tasks, d = document.createElement('section'); d.className = 't-col' + (S.mullMode && c.noMull ? ' catoff' : ''); d.style.setProperty('--c', PAL[c.color % PAL.length]);
+  const T = S.tasks, d = document.createElement('section'); d.className = 't-col' + (S.mullMode && c.noMull ? ' catoff' : '') + fxCls(c); d.style.setProperty('--c', PAL[c.color % PAL.length]);
   const n = c.tasks.filter((t) => t.done).length, p = c.tasks.length ? n / c.tasks.length * 100 : 0;
   const mm = !!S.mullMode, mc = mm ? catCounts(c) : null;
-  d.innerHTML = `<header class="t-ch">${mm ? `<button class="t-cbox${c.noMull ? '' : ' on'}" title="Include this whole category in mulling"></button>` : ''}<span class="t-name">${esc(c.name)}</span>${mm ? `<span class="t-count" title="tasks in play">${mc.on}/${mc.tot}</span>` : `<span class="t-count">${n}/${c.tasks.length}</span>`}<button class="t-more" title="Category options">⋯</button></header><div class="t-bar"><i style="width:${p}%"></i></div><div class="t-list"></div>`;
+  d.innerHTML = `<header class="t-ch">${mm ? `<button class="t-cbox${c.noMull ? '' : ' on'}" title="Include this whole category in mulling"></button>` : ''}<span class="t-name">${esc(c.name)}</span>${mm ? `<span class="t-count" title="tasks in play">${mc.on}/${mc.tot}</span>` : `<span class="t-count">${n}/${c.tasks.length}</span>`}<button class="t-more" title="Category options">⋯</button></header><div class="t-bar"><i style="${barSt(c.id, p)}"></i></div><div class="t-list"></div>`;
   const catMenu = (e) => ctxAt(e, [
     ['Rename', () => inlineEdit(d.querySelector('.t-name'), c.name, (v) => { c.name = v; tChanged(); })],
     ['Change color', () => { c.color = (c.color + 1) % PAL.length; tChanged(); }],
@@ -546,16 +870,17 @@ function colEl(c, ci) {
   c.tasks.forEach((t, ti) => {
     t.subs = t.subs || [];
     const hasSubs = t.subs.length > 0, nsub = t.subs.filter((x) => x.done).length;
-    const r = document.createElement('div'); r.className = 't-row' + (mm ? ` mm-${taskMullState(t)}${t.done ? ' strike' : ''}` : (t.done ? ' done' : '')) + (t.note ? ' has-note' : '');
+    const r = document.createElement('div'); r.className = 't-row' + (mm ? ` mm-${taskMullState(t)}${t.done ? ' strike' : ''}` : (t.done ? ' done' : '')) + (t.note ? ' has-note' : '') + fxCls(t);
     r.innerHTML = `<span class="t-box"></span><span class="t-text">${esc(t.text)}</span>${mm && !t.done && !c.noMull && taskMullState(t) !== 'off' ? holdChip(t) : ''}${hasSubs ? `<span class="t-cnt">${nsub}/${t.subs.length}</span><span class="t-chev" title="Show or hide subtasks">${t.collapsed ? '▸' : '▾'}</span>` : ''}${!mm && !t.done && !c.noMull && taskMullState(t) !== 'off' ? holdChip(t, true) : ''}`;
     const rename = () => inlineEdit(r.querySelector('.t-text'), t.text, (v) => { t.text = v; tChanged(); });
-    r.querySelector('.t-box').onclick = () => { if (mm) toggleMullTask(t); else setTaskDone(t, !t.done); tChanged(); };
+    r.querySelector('.t-box').onclick = () => { if (mm) toggleMullTask(t); else setTaskDone(t, !t.done); FX.set(t, mm ? (taskMullState(t) === 'off' ? 'off' : 'on') : (t.done ? 'on' : 'off')); tChanged(); };
     r.querySelector('.t-text').ondblclick = rename;
     if (hasSubs) r.querySelectorAll('.t-cnt, .t-chev').forEach((x) => { x.onclick = () => { t.collapsed = !t.collapsed; tChanged(); }; });
     if (t.note) { r.onmouseenter = () => showTip(r, t.note); r.onmouseleave = () => { tip.hidden = true; }; }
     r.oncontextmenu = (e) => {
       e.preventDefault(); tip.hidden = true;
       ctxAt(e, [
+        !t.done && ['Send to Pomodoro immediately', () => mullRush(c, t)],
         ['Add subtasks…', () => subModal(t)],
         mm && hasSubs && [t.tether ? 'Untether subtasks' : 'Tether subtasks', () => { t.tether = !t.tether; tChanged(); }],
         ...holdMenu(t, mm && !c.noMull && taskMullState(t) !== 'off'),
@@ -564,7 +889,7 @@ function colEl(c, ci) {
         ti > 0 && ['Move up', () => { mv(c.tasks, ti, -1); tChanged(); }],
         ti < c.tasks.length - 1 && ['Move down', () => { mv(c.tasks, ti, 1); tChanged(); }],
         null,
-        ['Delete task', () => { c.tasks.splice(ti, 1); tChanged(); }, 'danger'],
+        ['Delete task', () => fxOut(r, () => { c.tasks.splice(ti, 1); tChanged(); }), 'danger'],
       ].filter((x) => x !== false));
     };
     if (hasSubs && t.tether) {
@@ -574,7 +899,7 @@ function colEl(c, ci) {
     } else { list.appendChild(r); if (hasSubs && !t.collapsed) t.subs.forEach((x, si) => list.appendChild(subRow(t, x, si))); }
   });
   const add = document.createElement('input'); add.className = 't-add'; add.placeholder = '+ Add task'; add.dataset.cat = c.id;
-  add.onkeydown = (e) => { if (e.key === 'Enter' && add.value.trim()) { c.tasks.push({ id: uid(), text: add.value.trim(), done: false, note: '', subs: [] }); S.focusAdd = c.id; tChanged(); } };
+  add.onkeydown = (e) => { if (e.key === 'Enter' && add.value.trim()) { const nt = { id: uid(), text: add.value.trim(), done: false, note: '', subs: [] }; c.tasks.push(nt); FX.set(nt, 'new'); S.focusAdd = c.id; tChanged(); } };
   d.appendChild(add);
   return d;
 }
@@ -586,7 +911,7 @@ function ghostCol(row) {
     let done = false;
     const fin = (ok) => {
       if (done) return; done = true; const v = i.value.trim();
-      if (ok && v) { const c = { id: uid(), name: v, color: S.tasks.categories.length % PAL.length, tasks: [], row: row || 0 }; S.tasks.categories.push(c); S.focusAdd = c.id; tChanged(); } else renderTasks();
+      if (ok && v) { const c = { id: uid(), name: v, color: S.tasks.categories.length % PAL.length, tasks: [], row: row || 0 }; S.tasks.categories.push(c); FX.set(c, 'new'); S.focusAdd = c.id; tChanged(); } else renderTasks();
     };
     i.onkeydown = (e) => { if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); };
     i.onblur = () => fin(!!i.value.trim());
@@ -630,7 +955,7 @@ function descendants(id, out = new Set()) {
 }
 
 async function showGantt() {
-  if (S.view === 'gantt') { render(); return; }
+  if (S.view === 'gantt') { showDash(); return; }
   if (!S.gantt) {
     try { S.gantt = JSON.parse(await api.loadData('Gantt.gantt.json')); } catch { S.gantt = null; }
     if (!S.gantt || !Array.isArray(S.gantt.groups)) S.gantt = { groups: [] };
@@ -890,7 +1215,7 @@ const pk = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate
 const pSaveSoon = () => { clearTimeout(P.save); P.save = setTimeout(() => api.saveData('Pomodoro.pomo.json', JSON.stringify({ cfg: P.cfg, stats: P.stats })), 400); };
 
 async function showPomo() {
-  if (S.view === 'pomo') { render(); return; }
+  if (S.view === 'pomo') { showDash(); return; }
   if (!P.loaded) {
     try { const d = JSON.parse(await api.loadData('Pomodoro.pomo.json')); Object.assign(P.cfg, d.cfg || {}); P.stats = d.stats || {}; } catch { /* first run */ }
     P.loaded = true;
@@ -1156,7 +1481,7 @@ function fromMdH(text) {
 /* health:data:end */
 
 async function showHealth(year, force) {
-  if (S.view === 'health' && year == null && !force) { render(); return; }
+  if (S.view === 'health' && year == null && !force) { showDash(); return; }
   if (H.saveT) await hSaveNow();
   await loadHealth(year == null ? (H.loaded ? H.year : new Date().getFullYear()) : year);
   setView('health'); renderHealth();
@@ -1505,7 +1830,7 @@ function toMdF() {
 /* finance:data:end */
 
 async function showFinance(ym) {
-  if (S.view === 'finance' && ym == null) { render(); return; }
+  if (S.view === 'finance' && ym == null) { showDash(); return; }
   if (F.saveT) await fSaveNow();
   F.cache = {}; await loadFinance(ym || F.ym || ymNow());
   if (F.tab === 'income' && !INC.loaded) await incLoadSafe();
@@ -1811,20 +2136,22 @@ async function loadTasksData() {
   if (S.tasks) return;
   try { S.tasks = JSON.parse(await api.loadTasks()); } catch { S.tasks = null; }
   if (!S.tasks || !Array.isArray(S.tasks.categories)) S.tasks = { categories: [] };
+  if (!S.tasks.bank || !Array.isArray(S.tasks.bank.lists)) S.tasks.bank = { lists: [] };
   S.tasks.categories.forEach((c) => c.tasks.forEach((t) => { t.subs = t.subs || []; if (t.subs.length && t.noMull) t.subs.forEach((x) => { x.noMull = true; }); }));
   sweepHolds(); holdSig = holdSigNow();
   try { dbLoadFile().then(() => { if (DB.d.stats.lastDone == null && S.tasks) { DB.d.stats.lastDone = dbDoneCount(); dbSaveQuiet(); } }); } catch { /* dashboard code not ready */ }
 }
 function mullText() {
   const T = S.tasks, M = T && T.mull; if (!M || !M.cur) return '';
-  const f = mullFind(M.cur); return f.ok && !mullDone(M.cur) && mullIn(f) ? (f.group ? f.t.text : f.s ? f.s.text : f.t.text) : '';
+  const f = mullFind(M.cur); return f.ok && !mullDone(M.cur) && (M.cur.rush || mullIn(f)) ? (f.group ? f.t.text : f.s ? f.s.text : f.t.text) : '';
 }
 function mullHtml() {
   const T = S.tasks; if (!T) return '<div class="p-mull idle" id="p-mull"><span>Loading tasks…</span></div>';
-  const M = T.mull, f0 = M && M.cur ? mullFind(M.cur) : null, f = f0 && f0.ok && (mullDone(M.cur) || mullIn(f0)) ? f0 : null, left = T.categories.some((c) => mullNext(c)), pend = left ? null : mullPending();
+  const M = T.mull, f0 = M && M.cur ? mullFind(M.cur) : null, f = f0 && f0.ok && (mullDone(M.cur) || M.cur.rush || mullIn(f0)) ? f0 : null, left = T.categories.some((c) => mullNext(c)), pend = left ? null : mullPending();
   if (f && f.ok) {
     const done = mullDone(M.cur), col = PAL[f.c.color % PAL.length];
-    const tail = done ? (left ? '<button class="p-mnext" data-mull="next">Assign next task</button>' : pend !== null ? `<small class="p-mall p-wait">${HOURGLASS}Next at ${fmtMin(pend)}</small>` : '<small class="p-mall">That was the last one</small>') : '';
+    const rsm = M && M.rush && M.rush.resume, back = !!(rsm && (() => { const fr = mullFind(rsm); return fr.ok && !mullDone(rsm) && mullIn(fr); })());
+    const tail = done ? (left ? `<button class="p-mnext" data-mull="next">${back ? 'Back to previous task' : 'Assign next task'}</button>` : pend !== null ? `<small class="p-mall p-wait">${HOURGLASS}Next at ${fmtMin(pend)}</small>` : '<small class="p-mall">That was the last one</small>') : '';
     if (f.group) {
       const subs = f.t.subs.filter(live), nd = subs.filter((x) => x.done).length;
       return `<div class="p-mull grp${done ? ' done' : ''}${f.t.note ? ' has-note' : ''}" id="p-mull" style="--c:${col}"><div class="p-mrow"><button class="p-mbox" data-mull="tick" title="${done ? 'Untick all' : 'Tick all'}"></button><div class="p-mt"><b>${esc(f.t.text)}</b><small>${esc(f.c.name)} · ${nd}/${subs.length}</small></div>${tail}</div><div class="p-msubs">${subs.map((x) => `<button class="p-msub${x.done ? ' on' : ''}" data-mull="sub" data-sid="${x.id}"><i></i><span>${esc(x.text)}</span></button>`).join('')}</div></div>`;
@@ -1838,16 +2165,30 @@ function renderMull() {
   const el = $('p-mull'); P.noteEl = null; tip.hidden = true;
   const ms = el && el.querySelector('.p-msubs'), st = ms ? ms.scrollTop : 0;
   if (el) el.outerHTML = mullHtml();
+  { const nm = $('p-mull'); if (nm && P.fx) nm.classList.add(P.fx); P.fx = null; }
   const ns = st && $('p-mull') && $('p-mull').querySelector('.p-msubs'); if (ns) ns.scrollTop = st;
   updPomo(); updTally();
 }
+/* one-off "send to Pomodoro immediately" (4.10): the task becomes the active one, nothing else changes. The usual rotation is untouched,
+   and once the task is ticked the card offers to go back to whatever was active before. */
+function mullRush(c, t, s) {
+  const T = S.tasks, M = T.mull || (T.mull = { cur: null, served: [], last: null }), open = (t.subs || []).filter((x) => !x.done);
+  const it = s ? { cid: c.id, tid: t.id, sid: s.id } : open.length ? (t.tether ? { cid: c.id, tid: t.id, sid: null, group: true } : { cid: c.id, tid: t.id, sid: open[0].id }) : { cid: c.id, tid: t.id, sid: null };
+  it.rush = true;
+  const prev = M.cur && !M.cur.rush ? M.cur : (M.rush ? M.rush.resume : null);
+  M.rush = { resume: prev ? { ...prev } : null }; M.cur = it;
+  P.fx = 'fx-new'; tChanged(); if ($('p-mull')) renderMull(); if (typeof gToast === 'function') gToast('Sent to Pomodoro');
+}
 function mullAct(a, sid) {
   const T = S.tasks; if (!T) return; const M = T.mull;
-  if (a === 'next') mullAssign();
-  else if (M && M.cur) {
+  if (a === 'next') {
+    P.fx = 'fx-new';
+    const rs = M && M.rush && M.rush.resume, fr = rs && mullFind(rs); if (M) M.rush = null;
+    if (fr && fr.ok && !mullDone(rs) && mullIn(fr)) M.cur = rs; else mullAssign();
+  } else if (M && M.cur) {
     const f = mullFind(M.cur); if (!f.ok) return;
     if (a === 'tick') {
-      const v = !mullDone(M.cur);
+      const v = !mullDone(M.cur); P.fx = v ? 'fx-on' : 'fx-off';
       if (f.group) { f.t.subs.forEach((x) => { if (live(x)) x.done = v; }); f.t.done = f.t.subs.every((x) => x.done); }
       else if (f.s) { f.s.done = v; f.t.done = f.t.subs.every((x) => x.done); } else setTaskDone(f.t, v);
     } else if (a === 'sub' && f.group) {
@@ -1858,21 +2199,22 @@ function mullAct(a, sid) {
 }
 
 function subRow(t, s, si) {
-  const r = document.createElement('div'); const mm = !!S.mullMode; r.className = 't-row t-sub' + (mm ? ` mm-${s.noMull ? 'off' : 'on'}${s.done ? ' strike' : ''}` : (s.done ? ' done' : ''));
+  const r = document.createElement('div'); const mm = !!S.mullMode; r.className = 't-row t-sub' + (mm ? ` mm-${s.noMull ? 'off' : 'on'}${s.done ? ' strike' : ''}` : (s.done ? ' done' : '')) + fxCls(s);
   r.innerHTML = `<span class="t-box"></span><span class="t-text">${esc(s.text)}</span>${!s.done && !s.noMull ? holdChip(s, !mm) : ''}`;
   const rename = () => inlineEdit(r.querySelector('.t-text'), s.text, (v) => { s.text = v; tChanged(); });
-  r.querySelector('.t-box').onclick = () => { if (mm) toggleMullSub(t, s); else { s.done = !s.done; t.done = t.subs.every((x) => x.done); } tChanged(); };
+  r.querySelector('.t-box').onclick = () => { if (mm) toggleMullSub(t, s); else { s.done = !s.done; t.done = t.subs.every((x) => x.done); } FX.set(s, mm ? (s.noMull ? 'off' : 'on') : (s.done ? 'on' : 'off')); tChanged(); };
   r.querySelector('.t-text').ondblclick = rename;
   r.oncontextmenu = (e) => {
     e.preventDefault();
     ctxAt(e, [
+      !s.done && ['Send to Pomodoro immediately', () => { const c = S.tasks.categories.find((x) => x.tasks.includes(t)); if (c) mullRush(c, t, s); }],
       ['Add subtasks…', () => subModal(t)],
       ...holdMenu(s, mm && !s.noMull),
       ['Rename', rename],
       si > 0 && ['Move up', () => { mv(t.subs, si, -1); tChanged(); }],
       si < t.subs.length - 1 && ['Move down', () => { mv(t.subs, si, 1); tChanged(); }],
       null,
-      ['Delete subtask', () => { t.subs.splice(si, 1); if (t.subs.length) t.done = t.subs.every((x) => x.done); tChanged(); }, 'danger'],
+      ['Delete subtask', () => fxOut(r, () => { t.subs.splice(si, 1); if (t.subs.length) t.done = t.subs.every((x) => x.done); tChanged(); }), 'danger'],
     ].filter((x) => x !== false));
   };
   return r;
@@ -2008,7 +2350,7 @@ function curTheme() { return document.documentElement.dataset.theme || 'cyberpun
 $('btn-theme').onclick = (e) => {
   e.stopPropagation();
   const r = e.currentTarget.getBoundingClientRect();
-  ctxAt({ clientX: r.left, clientY: r.bottom + 6, preventDefault() {}, stopPropagation() {} }, Object.keys(THEMES).map((k) => [`${curTheme() === k ? '●' : '○'}  ${THEMES[k].label}`, () => applyTheme(k, true)]).concat([null, ['Open vault…', chooseVault], ['Back up now', backupNow], ['Restore from backup…', restoreDlg]]));
+  ctxAt({ clientX: r.left, clientY: r.bottom + 6, preventDefault() {}, stopPropagation() {} }, Object.keys(THEMES).map((k) => [`${curTheme() === k ? '●' : '○'}  ${THEMES[k].label}`, () => applyTheme(k, true)]).concat([null, ['Open vault…', chooseVault], ['Back up now', backupNow], ['Restore from backup…', restoreDlg], null, ['Organize vault…', organizeDlg]]));
 };
 let savedTheme = 'cyberpunk'; try { savedTheme = localStorage.getItem('sp-theme') || 'cyberpunk'; } catch (e) { /* ignore */ }
 applyTheme(savedTheme, false);
@@ -2181,7 +2523,7 @@ const uKey = (k) => (k === 'health' ? 'health:' + H.year : k === 'fin' ? 'fin:' 
 const uSt = (key) => U.s[key] || (U.s[key] = { u: [], r: [], last: null, t: 0 });
 function uKindNow() {
   const v = S.view;
-  if (v === 'notes') return 'notes';
+  if (v === 'notes') { const t = cur(); return t && t.kind === 'canvas' ? 'canvas' : 'notes'; }
   if (v === 'tasks' || v === 'pomo') return 'tasks';
   if (v === 'gantt') return 'gantt';
   if (v === 'dash') return 'dash';
@@ -2206,7 +2548,7 @@ function uNote(kind) {
 function uUI() {
   const ub = $('btn-undo'), rb = $('btn-redo'); if (!ub) return;
   const kind = uKindNow(); let u = 0, r = 0;
-  if (kind === 'notes') { const t = cur(); if (t && t.hist) { u = t.hist.u.length; r = t.hist.r.length; } }
+  if (kind === 'notes' || kind === 'canvas') { const t = cur(); if (t && t.hist) { u = t.hist.u.length; r = t.hist.r.length; } }
   else if (kind) { const st = U.s[uKey(kind)]; if (st) { u = st.u.length; r = st.r.length; } }
   ub.disabled = !u; rb.disabled = !r;
   ub.title = !kind ? 'Undo isn’t available on this page' : u ? `Undo (Ctrl+Z) · ${u} step${u === 1 ? '' : 's'}` : 'Nothing to undo';
@@ -2215,6 +2557,7 @@ function uUI() {
 function uStep(dir) {
   const kind = uKindNow(); if (!kind) return;
   if (kind === 'notes') { nStep(dir); return; }
+  if (kind === 'canvas') { cvStep(dir); return; }
   const st = uSt(uKey(kind)); st.t = 0; uNote(kind);
   const from = dir < 0 ? st.u : st.r, to = dir < 0 ? st.r : st.u; if (!from.length) return;
   const e = from.pop(); to.push({ s: st.last });
@@ -2255,7 +2598,7 @@ function nStep(dir) {
   const t = cur(), ed = $('ed'); if (!t || !t.hist || !ed) return;
   const h = t.hist, from = dir < 0 ? h.u : h.r, to = dir < 0 ? h.r : h.u; if (!from.length) return;
   const e = from.pop(); to.push({ text: h.last, off: h.off });
-  ed.innerHTML = fromMd(e.text); t.text = toMd(ed); h.last = t.text; h.off = e.off; h.t = 0; S.range = null;
+  ed.innerHTML = fromMd(e.text); imgResolve(ed); t.text = toMd(ed); h.last = t.text; h.off = e.off; h.t = 0; S.range = null;
   markDirty(t); ed.focus(); nSetOff(e.off); uUI();
 }
 
@@ -2267,6 +2610,10 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase(), isUndo = k === 'z' && !e.shiftKey, isRedo = k === 'y' || (k === 'z' && e.shiftKey);
   if (!isUndo && !isRedo) return;
   const el = document.activeElement, kind = uKindNow(); if (!kind) return;
+  if (kind === 'canvas') {
+    if (el && el.closest && (el.closest('#ed') || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+    e.preventDefault(); cvStep(isUndo ? -1 : 1); return;
+  }
   if (kind === 'notes') {
     const inEd = el && el.closest && el.closest('#ed');
     if (el && el !== document.body && !inEd) return;
@@ -2282,6 +2629,28 @@ async function flushAll() {
   await flush(); tSaveNow(); if (G.save) gSaveNow();
   if (H.saveT) await hSaveNow(); if (F.saveT) await fSaveNow(); if (INC.saveT) await incSaveNow();
   if (typeof GY !== 'undefined' && GY.saveT) gSaveSoon(true);
+}
+/* ---------- organize vault (4.93): panel data into one folder, optional tidy of loose notes ---------- */
+async function organizeDlg() {
+  await flushAll();
+  const st = await api.orgState(), ov = document.createElement('div'); ov.className = 't-modal';
+  const nothing = !st.pending, loose = st.loose > 0;
+  ov.innerHTML = `<div class="t-card g-card"><h3>Organize vault</h3>
+    <div class="t-for">Tasks, Gantt, Pomodoro, Dashboard, Health, Gym and Finance keep their data as files in your vault. This gathers all of it into one folder called <b>_Signal Path</b>, so everything else in the vault is just your notes.</div>
+    <div class="t-for bk-note">${nothing ? (st.organized ? 'Your panel data is already in <b>_Signal Path</b>.' : 'No panel data found yet. New data will go into <b>_Signal Path</b>.') : `<b>${st.pending}</b> data file${st.pending === 1 ? '' : 's'} will move into <b>_Signal Path</b>.`}</div>
+    ${loose ? `<div class="g-f"><label><input type="checkbox" id="og-in"> Also move the <b>${st.loose}</b> loose note${st.loose === 1 ? '' : 's'} at the top of the vault into a folder named</label><input id="og-name" class="g-in" value="Inbox" spellcheck="false"></div>` : ''}
+    <div class="t-for">A backup is taken first, nothing is deleted, and images and canvas links follow any note that moves. You can undo it afterwards.</div>
+    <div class="t-actions">${st.undo ? '<button data-a="undo">Undo organizing</button>' : '<span></span>'}<button data-a="x">Cancel</button><button class="primary" data-a="ok">${nothing && !loose ? 'Switch to organized' : 'Organize'}</button></div></div>`;
+  ov.onclick = async (e) => {
+    const a = e.target.dataset && e.target.dataset.a; if (e.target === ov || a === 'x') { ov.remove(); return; }
+    if (a !== 'ok' && a !== 'undo') return;
+    const btn = e.target; btn.disabled = true; btn.textContent = a === 'undo' ? 'Undoing…' : 'Organizing…';
+    if (a === 'undo') await api.orgUndo();
+    else { const ck = ov.querySelector('#og-in'); await api.orgApply({ inbox: ck && ck.checked ? (ov.querySelector('#og-name').value || 'Inbox') : '' }); }
+    location.reload();
+  };
+  ov.onkeydown = (e) => { if (e.key === 'Escape') ov.remove(); };
+  document.body.appendChild(ov);
 }
 async function backupNow() {
   await flushAll(); const r = await api.backupNow();

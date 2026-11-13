@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:">
 <title>Signal Path</title>
 <link rel="stylesheet" href="styles.css">
 <script src="theme-init.js"></script>
@@ -26,7 +26,7 @@
 </header>
 <div class="body">
   <aside class="side">
-    <div class="side-tabs"><span class="on">Library</span><button id="btn-new" class="st" title="New note (Ctrl+N)">+ Note</button><button id="btn-dir" class="st" title="New folder (Ctrl+Shift+N)">+ Folder</button></div>
+    <div class="side-tabs"><span class="on">Library</span><button id="btn-new" class="st" title="New note (Ctrl+N)">+ Note</button><button id="btn-dir" class="st" title="New folder (Ctrl+Shift+N)">+ Folder</button><button id="btn-canvas" class="st" title="New canvas (Ctrl+Alt+N)">+ Canvas</button></div>
     <input id="filter" class="filter" placeholder="Search notes" autocomplete="off">
     <div id="tree" class="tree"></div>
   </aside>
@@ -46,5 +46,6 @@
 <script src="renderer.js"></script>
 <script src="gym.js"></script>
 <script src="calendar.js"></script>
+<script src="canvas.js"></script>
 </body>
 </html>

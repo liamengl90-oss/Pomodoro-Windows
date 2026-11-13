@@ -16,13 +16,35 @@ function atomicWrite(file, data) {
 }
 const inside = (p) => { const r = path.resolve(p); return r === root || r.startsWith(root + path.sep); };
 
+/* ---------- vault layout (4.93) ----------
+   Notes stay where you put them. Everything the panels store (tasks, Gantt, Pomodoro, dashboard, gym, food log, health, finance)
+   lives in one folder, "_Signal Path". Older vaults keep working in the "classic" layout until Organize vault is run. */
+const SYS = '_Signal Path';
+const DATA_SUB = { 'Daily Tasks.tasks.json': 'Tasks', 'Gantt.gantt.json': 'Tasks', 'Pomodoro.pomo.json': 'Tasks', 'Dashboard.json': 'Dashboard', 'Gym.json': 'Health', 'FoodLog.json': 'Health' };
+const toNew = (rel) => (DATA_SUB[rel] ? `${SYS}/${DATA_SUB[rel]}/${rel}` : /^(Health|Finance)\//.test(rel) ? `${SYS}/${rel}` : rel);
+function toLegacy(rel) {
+  if (!rel.startsWith(SYS + '/')) return rel;
+  const r = rel.slice(SYS.length + 1), a = r.match(/^(Tasks|Dashboard)\/([^/]+)$/); if (a) return a[2];
+  const g = r.match(/^Health\/(Gym\.json|FoodLog\.json)$/); return g ? g[1] : r;
+}
+const layoutNew = () => !!root && fs.existsSync(path.join(root, SYS));
+const sysRel = (rel) => (layoutNew() ? toNew(rel) : rel);
+function walkSync(dir, base = dir, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, e.name); if (e.isDirectory()) walkSync(p, base, out); else out.push(toPosix(path.relative(base, p))); }
+  return out;
+}
+function pruneDirs(dir) {
+  try { for (const e of fs.readdirSync(dir, { withFileTypes: true })) if (e.isDirectory()) pruneDirs(path.join(dir, e.name)); if (!fs.readdirSync(dir).length) fs.rmdirSync(dir); } catch { /* ignore */ }
+}
+
 function scan(dir) {
   const out = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     if (e.name.startsWith('.')) continue;
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) { if (dir === root && (e.name === 'Health' || e.name === 'Finance')) continue; out.push({ type: 'dir', name: e.name, path: p, children: scan(p) }); }
-    else if (e.name.toLowerCase().endsWith('.md')) out.push({ type: 'file', name: e.name.slice(0, -3), path: p });
+    if (e.isDirectory()) { if (dir === root && (e.name === 'Health' || e.name === 'Finance' || e.name === 'attachments' || e.name === SYS)) continue; out.push({ type: 'dir', name: e.name, path: p, children: scan(p) }); }
+    else if (e.name.toLowerCase().endsWith('.md')) out.push({ type: 'file', kind: 'note', name: e.name.slice(0, -3), path: p });
+    else if (e.name.toLowerCase().endsWith('.canvas')) out.push({ type: 'file', kind: 'canvas', name: e.name.slice(0, -7), path: p });
   }
   return out.sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1);
 }
@@ -30,6 +52,7 @@ function scan(dir) {
 function openVault(dir) {
   root = path.resolve(dir);
   fs.mkdirSync(root, { recursive: true });
+  if (!fs.readdirSync(root).length) fs.mkdirSync(path.join(root, SYS), { recursive: true });   // a brand-new vault starts out organized
   if (!fs.readdirSync(root).some((f) => f.endsWith('.md'))) {
     fs.writeFileSync(path.join(root, 'Welcome.md'),
       '# Welcome to Signal Path\n\nYour notes are plain markdown files in this folder.\n\n- [ ] Click a checkbox in preview mode\n- [ ] Press Ctrl+N for a new note\n- [x] Open the app\n');
@@ -61,8 +84,85 @@ const rename = (p, name, ext) => {
   fs.renameSync(p, np);
   return np;
 };
-ipcMain.handle('note:rename', (_, p, name) => rename(p, name, '.md'));
-ipcMain.handle('dir:rename', (_, p, name) => rename(p, name, ''));
+/* ---------- attachments (4.7) ----------
+   Images live in <vault>/attachments/<note's folder path>/<note name>/ . When a note or folder is renamed or moved its image folder
+   follows it, and every note / canvas that points at those files is rewritten so nothing breaks. */
+const fsp = fs.promises;
+const ATT = 'attachments', IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif']);
+const toPosix = (p) => p.split(path.sep).join('/');
+const relOf = (abs) => toPosix(path.relative(root, abs));
+const noteKey = (rel) => rel.replace(/\.(md|canvas)$/i, '');
+const encRel = (rel) => rel.split('/').map(encodeURIComponent).join('/');
+let rewritten = [], imgIdx = null;
+async function walkAll(dir, re, out = []) {
+  let ents = []; try { ents = await fsp.readdir(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of ents) {
+    if (e.name.startsWith('.')) continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) await walkAll(p, re, out); else if (re.test(e.name)) out.push(p);
+  }
+  return out;
+}
+function uniqueIn(dir, name) {
+  const ext = path.extname(name), stem = name.slice(0, name.length - ext.length); let n = 1, p;
+  do { p = path.join(dir, n === 1 ? name : `${stem} ${n}${ext}`); n++; } while (fs.existsSync(p));
+  return p;
+}
+/* move an attachments folder; if the target already exists, merge file by file. Returns file-level pairs for any renamed collisions. */
+async function mergeMove(src, dst) {
+  const extra = [];
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  if (!fs.existsSync(dst)) { fs.renameSync(src, dst); return extra; }
+  for (const f of await walkAll(src, /./)) {
+    const sub = path.relative(src, f), tgt = path.join(dst, path.dirname(sub));
+    fs.mkdirSync(tgt, { recursive: true });
+    const np = uniqueIn(tgt, path.basename(f)); fs.renameSync(f, np);
+    if (path.basename(np) !== path.basename(f)) extra.push({ a: relOf(path.join(src, sub)), b: relOf(np), dir: false });
+  }
+  try { fs.rmSync(src, { recursive: true, force: true }); } catch { /* ignore */ }
+  return extra;
+}
+function pruneEmpty(dir) {
+  const stop = path.join(root, ATT);
+  try { while (dir.startsWith(stop + path.sep) && fs.readdirSync(dir).length === 0) { fs.rmdirSync(dir); dir = path.dirname(dir); } } catch { /* ignore */ }
+}
+async function rewriteRefs(pairs) {
+  if (!pairs.length) return;
+  const hit = (v, a) => v === a.a || (a.dir && v.startsWith(a.a + '/'));
+  const swap = (v, a) => a.b + v.slice(a.a.length);
+  for (const f of await walkAll(root, /\.(md|canvas)$/i)) {
+    let t; try { t = await fsp.readFile(f, 'utf8'); } catch { continue; }
+    let o = t;
+    if (/\.canvas$/i.test(f)) {
+      let j; try { j = JSON.parse(t); } catch { continue; }
+      let changed = false;
+      for (const n of j.nodes || []) if (typeof n.file === 'string') { const a = pairs.find((p) => hit(n.file, p)); if (a) { n.file = swap(n.file, a); changed = true; } }
+      if (changed) o = JSON.stringify(j, null, '\t');
+    } else {
+      for (const a of pairs) {
+        if (!a.a.startsWith(ATT + '/')) continue;
+        const forms = a.dir ? [[a.a + '/', a.b + '/'], [encRel(a.a) + '/', encRel(a.b) + '/']] : [['(' + a.a + ')', '(' + a.b + ')'], ['(' + encRel(a.a) + ')', '(' + encRel(a.b) + ')']];
+        for (const [x, y] of forms) if (o.includes(x)) o = o.split(x).join(y);
+      }
+    }
+    if (o !== t) { atomicWrite(f, o); rewritten.push(f); }
+  }
+}
+async function afterRename(oldAbs, newAbs, isDir) {
+  const oldRel = relOf(oldAbs), newRel = relOf(newAbs), pairs = [];
+  if (isDir || /\.(md|canvas)$/i.test(oldRel)) {
+    const k = (r) => ATT + '/' + (isDir ? r : noteKey(r)), aOld = path.join(root, k(oldRel));
+    if (k(oldRel) !== k(newRel) && fs.existsSync(aOld)) {
+      const extra = await mergeMove(aOld, path.join(root, k(newRel)));
+      pairs.push({ a: k(oldRel), b: k(newRel), dir: true }, ...extra); pruneEmpty(path.dirname(aOld));
+    }
+  }
+  pairs.push({ a: oldRel, b: newRel, dir: isDir });
+  await rewriteRefs(pairs);
+}
+const noteExt = (p) => (/\.canvas$/i.test(p) ? '.canvas' : '.md');
+ipcMain.handle('note:rename', async (_, p, name) => { const np = rename(p, name, noteExt(p)); if (np !== p) await afterRename(p, np, false); return np; });
+ipcMain.handle('dir:rename', async (_, p, name) => { const np = rename(p, name, ''); if (np !== p) await afterRename(p, np, true); return np; });
 ipcMain.handle('dir:create', (_, parent) => {
   const d = parent && inside(parent) ? parent : root;
   let n = 1, p;
@@ -70,32 +170,105 @@ ipcMain.handle('dir:create', (_, parent) => {
   fs.mkdirSync(p);
   return p;
 });
-ipcMain.handle('fs:move', (_, src, destDir) => {
+ipcMain.handle('canvas:create', (_, dir) => {
+  const d = dir && inside(dir) ? dir : root;
+  let n = 1, p;
+  do { p = path.join(d, n === 1 ? 'Untitled canvas.canvas' : `Untitled canvas ${n}.canvas`); n++; } while (fs.existsSync(p));
+  fs.writeFileSync(p, '{\n\t"nodes": [],\n\t"edges": []\n}');
+  return p;
+});
+ipcMain.handle('fs:move', async (_, src, destDir) => {
   if (!inside(src) || !inside(destDir)) return src;
   const s = path.resolve(src), d = path.resolve(destDir);
   if (s === root || d === s || d.startsWith(s + path.sep) || path.dirname(s) === d) return src;
   const np = path.join(d, path.basename(s));
   if (fs.existsSync(np)) return src;
+  const isDir = fs.statSync(s).isDirectory();
   fs.renameSync(s, np);
+  await afterRename(s, np, isDir);
   return np;
+});
+ipcMain.handle('refs:take', () => { const r = [...new Set(rewritten)]; rewritten = []; return r; });
+
+/* images: save pasted / dropped / picked pictures next to their note */
+function saveImg(notePath, name, data) {
+  if (!inside(notePath)) return null;
+  const dir = path.join(root, ATT, noteKey(relOf(path.resolve(notePath))));
+  fs.mkdirSync(dir, { recursive: true });
+  let base = String(name || 'image.png').replace(/[\\/:*?"<>|]/g, '').trim() || 'image.png';
+  if (!IMG_EXT.has(path.extname(base).toLowerCase())) base += '.png';
+  const p = uniqueIn(dir, base); fs.writeFileSync(p, Buffer.from(data)); imgIdx = null;
+  return relOf(p);
+}
+ipcMain.handle('img:save', (_, notePath, name, data) => saveImg(notePath, name, data));
+ipcMain.handle('img:pick', async (_, notePath) => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images', extensions: [...IMG_EXT].map((e) => e.slice(1)) }] });
+  if (r.canceled) return [];
+  return r.filePaths.map((f) => saveImg(notePath, path.basename(f), fs.readFileSync(f))).filter(Boolean);
+});
+/* Obsidian-style ![[name.png]] embeds: find the picture by its file name anywhere in the vault */
+ipcMain.handle('img:find', async (_, name) => {
+  if (!imgIdx || Date.now() - imgIdx.t > 20000) {
+    const m = new Map();
+    for (const f of await walkAll(root, new RegExp('\\.(' + [...IMG_EXT].map((e) => e.slice(1)).join('|') + ')$', 'i'))) {
+      const k = path.basename(f).toLowerCase(), cur = m.get(k), rel = relOf(f);
+      if (!cur || (rel.startsWith(ATT + '/') && !cur.startsWith(ATT + '/'))) m.set(k, rel);
+    }
+    imgIdx = { t: Date.now(), m };
+  }
+  return imgIdx.m.get(String(name).toLowerCase().split('/').pop()) || null;
+});
+ipcMain.handle('shell:show', (_, rel) => { const p = path.join(root, String(rel)); if (inside(p)) shell.showItemInFolder(path.resolve(p)); });
+ipcMain.handle('ext:open', (_, url) => { try { const u = new URL(String(url)); if (u.protocol === 'https:' || u.protocol === 'http:') shell.openExternal(u.href); } catch { /* ignore */ } });
+
+/* deleting a note / folder that owns images: ask first, then either trash the images or park them in attachments/_unsorted */
+async function attOf(p) {
+  const abs = path.resolve(p), isDir = fs.statSync(abs).isDirectory(), rel = relOf(abs);
+  const folder = path.join(root, ATT, isDir ? rel : noteKey(rel));
+  const files = fs.existsSync(folder) ? await walkAll(folder, /./) : [];
+  const gone = (f) => f === abs || f.startsWith(abs + path.sep);
+  const rels = files.map(relOf), shared = new Set();
+  if (rels.length) {
+    for (const f of await walkAll(root, /\.(md|canvas)$/i)) {
+      if (gone(f)) continue;
+      let t = ''; try { t = await fsp.readFile(f, 'utf8'); } catch { continue; }
+      for (const r of rels) if (!shared.has(r) && (t.includes(r) || t.includes(encRel(r)))) shared.add(r);
+    }
+  }
+  return { files, rels, shared, folder };
+}
+ipcMain.handle('att:inspect', async (_, p) => { if (!inside(p)) return { count: 0, shared: 0 }; const a = await attOf(p); return { count: a.files.length, shared: a.shared.size }; });
+ipcMain.handle('att:dispose', async (_, p, mode) => {
+  if (!inside(p)) return false;
+  const a = await attOf(p); if (!a.files.length) return true;
+  const park = path.join(root, ATT, '_unsorted'), pairs = [];
+  fs.mkdirSync(park, { recursive: true });
+  for (let i = 0; i < a.files.length; i++) {
+    const f = a.files[i], rel = a.rels[i];
+    if (mode === 'delete' && !a.shared.has(rel)) { try { await shell.trashItem(f); } catch { /* ignore */ } continue; }
+    const np = uniqueIn(park, path.basename(f)); fs.renameSync(f, np); pairs.push({ a: rel, b: relOf(np), dir: false });
+  }
+  await rewriteRefs(pairs);
+  try { if (!fs.readdirSync(a.folder).length) { fs.rmdirSync(a.folder); pruneEmpty(path.dirname(a.folder)); } } catch { /* ignore */ }
+  return true;
 });
 ipcMain.handle('fs:trash', async (_, p) => { if (inside(p) && path.resolve(p) !== root) await shell.trashItem(path.resolve(p)); });
 
-const tasksFile = () => path.join(root, 'Daily Tasks.tasks.json');
+const tasksFile = () => path.join(root, sysRel('Daily Tasks.tasks.json'));
 ipcMain.handle('tasks:load', () => { try { return fs.readFileSync(tasksFile(), 'utf8'); } catch { return ''; } });
-ipcMain.handle('tasks:save', (_, text) => { atomicWrite(tasksFile(), text); });
+ipcMain.handle('tasks:save', (_, text) => { fs.mkdirSync(path.dirname(tasksFile()), { recursive: true }); atomicWrite(tasksFile(), text); });
 
-const dataFile = (n) => path.join(root, path.basename(String(n)));
+const dataFile = (n) => path.join(root, sysRel(path.basename(String(n))));
 ipcMain.handle('data:load', (_, n) => { try { return fs.readFileSync(dataFile(n), 'utf8'); } catch { return ''; } });
-ipcMain.handle('data:save', (_, n, text) => { if (/\.json$/i.test(String(n))) atomicWrite(dataFile(n), text); });
+ipcMain.handle('data:save', (_, n, text) => { if (/\.json$/i.test(String(n))) { fs.mkdirSync(path.dirname(dataFile(n)), { recursive: true }); atomicWrite(dataFile(n), text); } });
 
-const healthDir = () => path.join(root, 'Health');
+const healthDir = () => path.join(root, layoutNew() ? SYS + '/Health' : 'Health');
 ipcMain.handle('health:load', (_, year) => { try { return fs.readFileSync(path.join(healthDir(), `Health ${Number(year)}.md`), 'utf8'); } catch { return ''; } });
 ipcMain.handle('health:save', (_, year, text) => { fs.mkdirSync(healthDir(), { recursive: true }); atomicWrite(path.join(healthDir(), `Health ${Number(year)}.md`), text); });
 
-const finPath = (ym) => (/^\d{4}-\d{2}$/.test(String(ym)) ? path.join(root, 'Finance', `Outgoing ${ym}.md`) : null);
+const finPath = (ym) => (/^\d{4}-\d{2}$/.test(String(ym)) ? path.join(root, layoutNew() ? SYS + '/Finance' : 'Finance', `Outgoing ${ym}.md`) : null);
 ipcMain.handle('finance:load', (_, ym) => { const p = finPath(ym); try { return p ? fs.readFileSync(p, 'utf8') : ''; } catch { return ''; } });
-const incomeFile = () => path.join(root, 'Finance', 'Income.md');
+const incomeFile = () => path.join(root, layoutNew() ? SYS + '/Finance' : 'Finance', 'Income.md');
 ipcMain.handle('income:load', () => { try { return fs.readFileSync(incomeFile(), 'utf8'); } catch { return ''; } });
 ipcMain.handle('income:save', (_, text) => { fs.mkdirSync(path.dirname(incomeFile()), { recursive: true }); atomicWrite(incomeFile(), String(text)); });
 ipcMain.handle('finance:save', (_, ym, text) => { const p = finPath(ym); if (!p) return; fs.mkdirSync(path.dirname(p), { recursive: true }); atomicWrite(p, text); });
@@ -299,7 +472,7 @@ function bkWalk(dir, base, out) {
     if (e.name.startsWith('.')) continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) bkWalk(p, base, out);
-    else if (/\.(md|json)$/i.test(e.name)) out.push(path.relative(base, p).split(path.sep).join('/'));
+    else if (/\.(md|json|canvas)$/i.test(e.name)) out.push(path.relative(base, p).split(path.sep).join('/'));
   }
   return out;
 }
@@ -346,14 +519,14 @@ async function bkDaily() {
   try { if (!fs.existsSync(bkSnapFile(bkDayId()))) { await bkSnapshot(bkDayId(), 'Daily'); bkPrune(); } } finally { bkBusy = false; }
 }
 function bkDailySafe() { bkDaily().catch(() => { bkBusy = false; }); }
-const bkScope = (rel, sc) => {
-  const top = rel.split('/')[0];
+const bkScope = (rel0, sc) => {
+  const rel = toLegacy(rel0), top = rel.split('/')[0];
   if (sc === 'all') return true;
   if (sc === 'gym') return rel === 'Gym.json';
   if (sc === 'tasks') return ['Daily Tasks.tasks.json', 'Gantt.gantt.json', 'Pomodoro.pomo.json', 'Dashboard.json'].includes(rel);
   if (sc === 'health') return top === 'Health' || rel === 'FoodLog.json';
   if (sc === 'finance') return top === 'Finance';
-  if (sc === 'notes') return /\.md$/i.test(rel) && top !== 'Health' && top !== 'Finance';
+  if (sc === 'notes') return /\.(md|canvas)$/i.test(rel) && top !== 'Health' && top !== 'Finance';
   return false;
 };
 const bkSha = (full) => { try { return crypto.createHash('sha1').update(fs.readFileSync(full)).digest('hex'); } catch { return null; } };
@@ -362,7 +535,7 @@ function bkDiff(id, sc) {
   const todo = [];
   for (const [rel, h] of Object.entries(snap.files || {})) {
     if (rel.includes('..') || !bkScope(rel, sc)) continue;
-    const full = path.resolve(root, rel); if (!inside(full)) continue;
+    const full = path.resolve(root, layoutNew() ? toNew(toLegacy(rel)) : toLegacy(rel)); if (!inside(full)) continue;
     if (bkSha(full) !== h && fs.existsSync(bkBlob(h))) todo.push([rel, h, full]);
   }
   return { snap, todo };
@@ -380,3 +553,56 @@ ipcMain.handle('backup:restore', async (_, id, sc) => {
   } finally { bkBusy = false; }
 });
 setInterval(bkDailySafe, 3600e3);
+
+
+/* ================= ORGANIZE VAULT (4.93) ================= */
+function orgPlan(opts) {
+  const moves = [];
+  for (const n of Object.keys(DATA_SUB)) if (fs.existsSync(path.join(root, n))) moves.push({ from: n, to: toNew(n), kind: 'data' });
+  for (const d of ['Health', 'Finance']) {
+    const abs = path.join(root, d);
+    if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) for (const f of walkSync(abs)) moves.push({ from: d + '/' + f, to: SYS + '/' + d + '/' + f, kind: 'data' });
+  }
+  const inbox = opts && opts.inbox ? String(opts.inbox).replace(/[\\/:*?"<>|]/g, '').trim() : '';
+  if (inbox) for (const e of fs.readdirSync(root, { withFileTypes: true })) if (e.isFile() && /\.(md|canvas)$/i.test(e.name)) moves.push({ from: e.name, to: inbox + '/' + e.name, kind: 'note' });
+  moves.forEach((x) => { x.conflict = fs.existsSync(path.join(root, x.to)); });
+  return moves;
+}
+const orgLog = () => path.join(root, SYS, '.migration-log.json');
+ipcMain.handle('org:state', () => {
+  const plan = orgPlan({ inbox: '' }), loose = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isFile() && /\.(md|canvas)$/i.test(e.name)).length;
+  return { organized: layoutNew(), pending: plan.length, loose, undo: fs.existsSync(orgLog()) };
+});
+ipcMain.handle('org:apply', async (_, opts) => {
+  const plan = orgPlan(opts || {}).filter((x) => !x.conflict), done = [];
+  if (!plan.length && !layoutNew()) { fs.mkdirSync(path.join(root, SYS), { recursive: true }); return { moved: 0 }; }
+  while (bkBusy) await yieldNow(); bkBusy = true;
+  try { await bkSnapshot(bkTimeId() + '_before-organize', 'Before organizing the vault'); } catch { /* carry on, files are only moved */ } finally { bkBusy = false; }
+  fs.mkdirSync(path.join(root, SYS), { recursive: true });
+  for (const x of plan.filter((p) => p.kind === 'data')) {          // data files first, in one go, so nothing can write to the old place meanwhile
+    try { fs.mkdirSync(path.dirname(path.join(root, x.to)), { recursive: true }); fs.renameSync(path.join(root, x.from), path.join(root, x.to)); done.push(x); } catch { /* leave it where it is */ }
+  }
+  for (const d of ['Health', 'Finance']) pruneDirs(path.join(root, d));
+  for (const x of plan.filter((p) => p.kind === 'note')) {
+    try { const a = path.join(root, x.from), b = path.join(root, x.to); fs.mkdirSync(path.dirname(b), { recursive: true }); fs.renameSync(a, b); await afterRename(a, b, false); done.push(x); } catch { /* leave it where it is */ }
+  }
+  let prev = []; try { prev = JSON.parse(fs.readFileSync(orgLog(), 'utf8')).moves || []; } catch { prev = []; }
+  atomicWrite(orgLog(), JSON.stringify({ ts: Date.now(), moves: [...prev, ...done] }, null, 1));
+  return { moved: done.length, skipped: plan.length - done.length };
+});
+ipcMain.handle('org:undo', async () => {
+  if (!layoutNew()) return { moved: 0 };
+  let log = { moves: [] }; try { log = JSON.parse(fs.readFileSync(orgLog(), 'utf8')); } catch { /* none */ }
+  let n = 0;
+  for (const rel of walkSync(path.join(root, SYS)).filter((f) => !f.startsWith('.'))) {           // every data file that is in the organized folder goes back
+    const from = path.join(root, SYS, rel), back = toLegacy(SYS + '/' + rel), to = path.join(root, back);
+    if (fs.existsSync(to)) continue; try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); n++; } catch { /* skip */ }
+  }
+  for (const x of (log.moves || []).filter((y) => y.kind === 'note').reverse()) {
+    const a = path.join(root, x.to), b = path.join(root, x.from); if (!fs.existsSync(a) || fs.existsSync(b)) continue;
+    try { fs.renameSync(a, b); await afterRename(a, b, false); n++; } catch { /* skip */ }
+  }
+  try { fs.unlinkSync(orgLog()); } catch { /* ignore */ }
+  pruneDirs(path.join(root, SYS)); try { if (fs.existsSync(path.join(root, SYS)) && !fs.readdirSync(path.join(root, SYS)).length) fs.rmdirSync(path.join(root, SYS)); } catch { /* ignore */ }
+  return { moved: n };
+});
